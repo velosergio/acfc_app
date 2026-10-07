@@ -21,5 +21,11 @@ def read_manifest(folder: Path) -> dict[str, tuple[str, int]]:
     path = Path(folder) / MANIFEST
     if not path.exists():
         return {}
+    rows: dict[str, tuple[str, int]] = {}
     with path.open(newline="", encoding="utf-8") as fh:
-        return {r["archivo"]: (r["lado"], int(r["corte"])) for r in csv.DictReader(fh)}
+        for r in csv.DictReader(fh):
+            try:  # una fila truncada o editada a mano no debe tumbar la corrida
+                rows[r["archivo"]] = (r["lado"], int(r["corte"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return rows

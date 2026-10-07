@@ -19,8 +19,11 @@ class RunnerThread(QThread):
         self.runner = make_runner(cfg)
 
     def run(self) -> None:
-        for ev in self.runner.events():
-            self.event.emit(ev)
+        try:
+            for ev in self.runner.events():
+                self.event.emit(ev)
+        except Exception as exc:  # p. ej. falta la carpeta de la fase anterior
+            self.event.emit({"type": "fatal", "error": str(exc)})
 
     def cancel(self) -> None:
         self.runner.cancel()
@@ -146,6 +149,10 @@ class MainWindow(QMainWindow):
             self.status.setText(f"Error en worker {ev['worker']}: {ev['error']}")
         elif t == "phase_done":
             pass
+        elif t == "fatal":
+            self.status.setText(f"Error: {ev['error']}")
+            self.start_btn.setEnabled(True)
+            self.cancel_btn.setEnabled(False)
         elif t == "finished":
             c = ev["counts"]
             estado = "Cancelado" if ev["cancelled"] else "Terminado"

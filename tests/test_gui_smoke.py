@@ -61,3 +61,18 @@ def test_eventos_por_fase_reinician_las_barras_y_muestran_la_fase():
     win.handle_event({"type": "start", "fase": 2, "total": 3, "workers": 2, "batches": 1})
     assert "2" in win.phase_label.text() and win.overall.maximum() == 3 and win.overall.value() == 0
     assert len(win.worker_bars) == 2
+
+
+def test_error_fatal_del_runner_reactiva_el_boton_iniciar(tmp_path):
+    from acfc.core.runner import RunConfig
+    from acfc.gui import RunnerThread
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    got = []
+    th = RunnerThread(RunConfig(tmp_path, mode="fases", phases=(2,), backend="fake"))   # falta fase1_mapa
+    th.event.connect(got.append)
+    th.run()
+    assert got and got[-1]["type"] == "fatal" and "falta la carpeta" in got[-1]["error"]
+    win.start_btn.setEnabled(False)
+    win.handle_event(got[-1])
+    assert win.start_btn.isEnabled() and "falta la carpeta" in win.status.text()
