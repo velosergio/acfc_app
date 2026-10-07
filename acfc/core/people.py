@@ -13,6 +13,9 @@ class PersonThresholds:
     head: float = 0.25
     torso: float = 0.15
     min_height_ratio: float = 0.12
+    # zonas de la gorra (fx0, fy0, fx1, fy1 sobre la caja); gana la de mayor puntaje: una gorra pequeña
+    # se diluye en la zona amplia y una zona estrecha pierde gorras grandes de selfi
+    head_zones: tuple[tuple[float, float, float, float], ...] = ((0.25, 0.0, 0.75, 0.12), (0.30, 0.0, 0.70, 0.08))
 
 
 @dataclass(frozen=True)
@@ -57,7 +60,10 @@ def decide(rgb: np.ndarray, person_boxes: list[Box], th: PersonThresholds = Pers
         if (box[3] - box[1]) < th.min_height_ratio * height:
             continue
         # el blanco del fondo (cielo nublado, pared) no cuenta como gorra ni como uniforme
-        head = max(0.0, white_fraction(_zone(rgb, box, 0.25, 0.0, 0.75, 0.12)) - 0.8 * _background_white(rgb, box, 0.0, 0.12))
+        head = max(
+            max(0.0, white_fraction(_zone(rgb, box, hx0, hy0, hx1, hy1)) - 0.8 * _background_white(rgb, box, hy0, hy1))
+            for hx0, hy0, hx1, hy1 in th.head_zones
+        )
         # uniforme: zona media (torso) o zona baja (en selfis la caja llega solo hasta los hombros)
         torso = max(
             max(0.0, white_fraction(_zone(rgb, box, 0.1, fy0, 0.9, fy1)) - 0.8 * _background_white(rgb, box, fy0, fy1))

@@ -53,6 +53,41 @@ def test_linea_debil_se_une_a_la_cadena_y_ensancha_el_bloque():
     assert x0 <= 300 and y0 == 0
 
 
+def test_caso_real_fragmentos_de_una_linea_y_digitos_en_fragmentos_izquierdos():
+    # foto 0a7f942 (1200x1600): el OCR parte "9 abr 2026 8:49 a. m." y "Paz De Rio - Sativasur" en trozos
+    off = 1600 - int(P.strip_ratio * 1600)          # la franja inferior empieza aqui
+    g = [  # coordenadas globales, texto, conf
+        ((653, 1330, 1117, 1394), "9 abr 2026 8.49,86a", 0.46),
+        ((1132, 1342, 1186, 1390), "m", 0.75),
+        ((1075, 1389, 1141, 1433), "92", 1.0),
+        ((1157, 1387, 1193, 1435), "E", 0.94),
+        ((706, 1434, 954, 1490), "Paz Dè Rio", 0.63),
+        ((978, 1434, 1200, 1490), "Sativasur", 0.98),
+        ((977, 1481, 1199, 1541), "Sativasur", 0.7),
+        ((6, 1560, 88, 1590), "Google", 1.0),            # logo del minimapa: no es del bloque
+        ((1024, 1542, 1200, 1600), "Boyacá", 0.93),
+    ]
+    results = [(_pts(x0, y0 - off, x1, y1 - off), t, c) for (x0, y0, x1, y1), t, c in g]
+    (x0, y0, x1, y1), = text_boxes_from_ocr(results, 1200, 1600, off, 0, False, P)
+    assert x0 <= 660 and x0 > 400          # incluye la fecha completa pero no el logo "Google"
+    assert y0 <= 1330 and y1 == 1600 and x1 == 1200
+
+
+def test_caso_real_imagen_pequena_con_tokens_altos():
+    # foto 0c0a035 (394x532): lineas de ~24 px y un token de 38 px de alto
+    off = 532 - int(P.strip_ratio * 532)
+    g = [
+        ((206, 453, 356, 477), "may 2026124456", 0.52),
+        ((254, 469, 334, 493), "849 N 728", 0.36),
+        ((325, 456, 394, 494), "*5682W", 0.33),
+        ((308, 487, 394, 511), "Paz de Río", 0.97),
+        ((334, 507, 394, 531), "Boyacá", 1.0),
+    ]
+    results = [(_pts(x0, y0 - off, x1, y1 - off), t, c) for (x0, y0, x1, y1), t, c in g]
+    (x0, y0, x1, y1), = text_boxes_from_ocr(results, 394, 532, off, 0, False, P)
+    assert x0 <= 206 and y0 <= 456 and y1 == 532 and x1 == 394
+
+
 def test_cadena_sin_digitos_no_es_el_bloque_gps():
     # follaje que el OCR lee como palabras: el bloque real siempre trae fecha/coordenadas
     results = [
@@ -110,6 +145,28 @@ def test_minimapa_abajo_derecha():
     (x0, y0, x1, y1), = find_minimap(img, P)
     assert (x1, y1) == (400, 600)
     assert abs(x0 - 280) <= 6 and abs(y0 - 480) <= 6
+
+
+def _tile_pin_arriba(img, x0, y0, x1, y1, subir):
+    """Mosaico cuyo pin queda `subir` px por encima del centro vertical (pasa en fotos pequeñas)."""
+    img[y0:y1, x0:x1] = (197, 232, 197)
+    cx, tip = (x0 + x1) // 2, (y0 + y1) // 2 - subir
+    cv2.circle(img, (cx, tip - 15), 7, (234, 67, 53), -1)
+    cv2.fillPoly(img, [np.array([[cx - 6, tip - 12], [cx + 6, tip - 12], [cx, tip]], np.int32)], (234, 67, 53))
+
+
+def test_minimapa_con_pin_desplazado_ajusta_el_borde_real():
+    img = _fondo()
+    _tile_pin_arriba(img, 0, 500, 120, 600, subir=12)   # tile 120x100, pin 12 px por encima del centro
+    (x0, y0, x1, y1), = find_minimap(img, P)
+    assert x0 == 0 and abs(x1 - 120) <= 3 and y1 == 600 and abs(y0 - 500) <= 4   # sin ajuste serian 24 px de mas
+
+
+def test_minimapa_mas_alto_que_ancho():
+    img = _fondo()
+    _tile(img, 0, 0, 100, 150)                       # alto/ancho = 1.5
+    (x0, y0, x1, y1), = find_minimap(img, P)
+    assert (x0, y0) == (0, 0) and abs(x1 - 100) <= 6 and abs(y1 - 150) <= 6
 
 
 def test_sin_pin_no_hay_minimapa():

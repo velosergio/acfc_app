@@ -68,6 +68,18 @@ def test_selfie_chaqueta_blanca_en_la_parte_baja_de_la_caja_descarta():
     assert decide(img, [box]).discard is True
 
 
+def test_zona_de_cabeza_configurable_para_gorras_pequenas():
+    # gorra que solo cubre el 8 % superior: la zona por defecto (12 %) la diluye, una zona mas baja la recoge
+    img, box = _img(), (50, 100, 150, 350)
+    _paint(img, box, 0.30, 0.0, 0.70, 0.08)
+    _paint(img, box, 0.1, 0.2, 0.9, 0.55)
+    solo_amplia = PersonThresholds(head=0.7, head_zones=((0.25, 0.0, 0.75, 0.12),))
+    assert decide(img, [box], solo_amplia).discard is False                  # zona amplia: 8/12 = .67 < .7
+    con_ajustada = PersonThresholds(head=0.7, head_zones=((0.25, 0.0, 0.75, 0.12), (0.3, 0.0, 0.7, 0.08)))
+    assert decide(img, [box], con_ajustada).discard is True                  # se toma la mejor de las zonas
+    assert len(PersonThresholds().head_zones) == 2                           # por defecto usa las dos
+
+
 def test_una_persona_blanca_entre_varias_descarta():
     img = _img()
     a, b = (10, 100, 80, 350), (110, 100, 190, 350)

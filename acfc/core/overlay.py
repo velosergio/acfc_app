@@ -16,11 +16,12 @@ class OverlayParams:
     weak_conf: float = 0.02          # las líneas débiles solo cuentan si se unen a la cadena
     anchor_max: float = 0.15         # la primera línea vista debe estar a menos de esta fracción de H del borde
     right_align_min: float = 0.90    # el borde derecho de cada línea debe pasar de este x relativo
-    right_align_tol: float = 0.03    # los bordes derechos de las líneas deben coincidir (relativo a W)
+    right_align_tol: float = 0.07    # los bordes derechos de las anclas deben coincidir (relativo a W)
+    h_gap: float = 3.0               # separación horizontal máxima entre trozos de una línea (en alturas de línea)
     chain_extend: float = 1.5        # alturas de línea que se extienden más allá de la última línea vista
     min_ocr_conf: float = 0.30       # una línea es "fuerte" con esta confianza o más
     line_h_min: float = 0.012        # alto de línea de texto relativo al ancho de la imagen
-    line_h_max: float = 0.07
+    line_h_max: float = 0.10
     chain_gap: float = 4.0           # separación máxima entre líneas (en alturas de línea)
     min_lines: int = 2               # líneas fuertes mínimas en el bloque
     min_digits: int = 3              # el bloque GPS siempre trae fecha/coordenadas
@@ -32,7 +33,8 @@ class OverlayParams:
     tile_min_w: float = 0.12         # ancho del mosaico relativo a W
     tile_max_w: float = 0.45
     tile_aspect_min: float = 0.7     # alto/ancho del mosaico
-    tile_aspect_max: float = 1.4
+    tile_aspect_max: float = 1.6
+    tile_edge: float = 25.0          # salto mínimo de color para reconocer el borde real del mosaico
     tile_fill: float = 0.5           # fracción de píxeles "color mapa" alrededor del pin
     # brújula (aguja cian)
     needle_area_min: float = 0.0003  # relativo a W²
@@ -49,41 +51,56 @@ def text_chain(results, width: int, height: int, y_offset: int, at_top: bool,
 
     Devuelve (caja, nº de líneas fuertes) o None.
     """
-    lines = []  # (x0, y0, x1, y1, fuerte, dígitos)
+    frags = []  # (x0, y0, x1, y1, conf, texto)
     for pts, text, conf in results:
-        if conf < p.weak_conf or _alnum(text) < 2:
+        if conf < p.weak_conf or _alnum(text) < 1:
             continue
         px = [int(pt[0]) for pt in pts]
         py = [int(pt[1]) + y_offset for pt in pts]
-        h = max(py) - min(py)
-        if max(px) < p.right_align_min * width or not (p.line_h_min * width <= h <= p.line_h_max * width):
-            continue
-        lines.append((min(px), min(py), max(px), max(py), conf >= p.min_ocr_conf, sum(ch.isdigit() for ch in text)))
-    if not lines:
+        if p.line_h_min * width <= max(py) - min(py) <= p.line_h_max * width:
+            frags.append((min(px), min(py), max(px), max(py), conf, text))
+    # anclas: fragmentos pegados al margen derecho, con borde derecho coincidente
+    anchors = [f for f in frags if _alnum(f[5]) >= 2 and f[2] >= p.right_align_min * width]
+    if not anchors:
         return None
-    med_right = float(np.median([b[2] for b in lines]))
-    lines = [b for b in lines if abs(b[2] - med_right) <= p.right_align_tol * width]
-    if not lines:
+    med_right = float(np.median([f[2] for f in anchors]))
+    anchors = [f for f in anchors if abs(f[2] - med_right) <= p.right_align_tol * width]
+    if not anchors:
         return None
-    lines.sort(key=(lambda b: b[1]) if at_top else (lambda b: -b[3]))
-    edge_dist = lines[0][1] if at_top else height - lines[0][3]
+    anchors.sort(key=(lambda f: f[1]) if at_top else (lambda f: -f[3]))
+    edge_dist = anchors[0][1] if at_top else height - anchors[0][3]
     if edge_dist > p.anchor_max * height:
         return None
-    chain = [lines[0]]
-    for b in lines[1:]:
+    chain = [anchors[0]]
+    for f in anchors[1:]:
         med_h = float(np.median([c[3] - c[1] for c in chain]))
-        gap = (b[1] - max(c[3] for c in chain)) if at_top else (min(c[1] for c in chain) - b[3])
+        gap = (f[1] - max(c[3] for c in chain)) if at_top else (min(c[1] for c in chain) - f[3])
         if gap <= p.chain_gap * med_h:
-            chain.append(b)
-    strong = sum(1 for c in chain if c[4])
-    if strong < p.min_lines or sum(c[5] for c in chain) < p.min_digits:
+            chain.append(f)
+    med_h = float(np.median([c[3] - c[1] for c in chain]))
+    # miembros: fragmentos a la altura de la cadena y pegados horizontalmente (el OCR parte las líneas en trozos)
+    y_lo, y_hi = min(c[1] for c in chain) - 0.5 * med_h, max(c[3] for c in chain) + 0.5 * med_h
+    members = list(chain)
+    left = min(c[0] for c in chain)
+    changed = True
+    while changed:
+        changed = False
+        for f in frags:
+            if f in members or not (y_lo <= (f[1] + f[3]) / 2 <= y_hi):
+                continue
+            if f[2] >= left - p.h_gap * med_h:
+                members.append(f)
+                left = min(left, f[0])
+                changed = True
+    strong = sum(1 for c in chain if c[4] >= p.min_ocr_conf)
+    if strong < p.min_lines or sum(sum(ch.isdigit() for ch in m[5]) for m in members) < p.min_digits:
         return None
-    x0 = max(0, min(c[0] for c in chain) - int(p.text_pad_left * width))
-    ext = int(p.chain_extend * float(np.median([c[3] - c[1] for c in chain])))
+    x0 = max(0, left - int(p.text_pad_left * width))
+    ext = int(p.chain_extend * med_h)
     if at_top:
-        y0, y1 = 0, min(height, max(c[3] for c in chain) + ext)
+        y0, y1 = 0, min(height, max(m[3] for m in members) + ext)
     else:
-        y0, y1 = max(0, min(c[1] for c in chain) - ext), height
+        y0, y1 = max(0, min(m[1] for m in members) - ext), height
     return (x0, y0, width, y1), strong
 
 
@@ -105,6 +122,18 @@ def _components(mask: np.ndarray):
         yield int(x), int(y), int(w), int(h), int(area), cents[i]
 
 
+def _refine_height(view: np.ndarray, tw: int, th: int, p: OverlayParams) -> int:
+    """El pin no siempre queda en el centro exacto: busca el borde real del mosaico cerca de la estimación."""
+    lo, hi = int(0.75 * th), min(view.shape[0] - 1, int(1.25 * th))
+    if hi - lo < 3:
+        return th
+    cols = view[lo:hi + 1, int(0.1 * tw):max(int(0.9 * tw), int(0.1 * tw) + 1)].astype(np.int32)
+    prof = cols.mean(axis=1)
+    jump = np.abs(np.diff(prof, axis=0)).sum(axis=1)
+    k = int(np.argmax(jump))
+    return lo + k + 1 if jump[k] >= p.tile_edge else th
+
+
 def find_minimap(rgb: np.ndarray, p: OverlayParams) -> list[Box]:
     H, W = rgb.shape[:2]
     region_w, region_h = int(p.tile_max_w * W / 2) + 2, min(H, int(0.35 * W))
@@ -124,6 +153,7 @@ def find_minimap(rgb: np.ndarray, p: OverlayParams) -> list[Box]:
                 tw, th = int(2 * cx), int(2 * tip)
                 if not (p.tile_min_w * W <= tw <= p.tile_max_w * W) or not (p.tile_aspect_min <= th / tw <= p.tile_aspect_max):
                     continue
+                th = _refine_height(view, tw, th, p)
                 m = int(1.5 * h)
                 win = mapish[max(0, y - m):y + h + m, max(0, x - m):x + w + m]
                 red_win = red[max(0, y - m):y + h + m, max(0, x - m):x + w + m]
