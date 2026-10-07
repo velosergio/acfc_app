@@ -1,0 +1,8 @@
+numpy
+pillow
+opencv-python
+ultralytics
+easyocr
+PySide6
+rich
+pytest
