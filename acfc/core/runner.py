@@ -10,7 +10,7 @@ from typing import Iterator
 
 from acfc.core.backends import build_backend
 from acfc.core.manifest import MANIFEST, read_manifest, write_row
-from acfc.core.phases import phase1_map, phase2_people, phase3_text
+from acfc.core.phases import phase1_map, phase2_people, phase3_text, phase4_size
 from acfc.core.pipeline import process_image
 
 EXTS = {".jpg", ".jpeg", ".png"}
@@ -28,18 +28,20 @@ class RunConfig:
     mode: str = "unico"
     phases: tuple = (1, 2, 3)
     sides: dict = field(default_factory=dict)        # fase 3: nombre -> lado del manifiesto
+    min_side: int = 500                              # fase 4: lado minimo en px
     skip_people: bool = False                        # saltar la fase 2: la fase 3 lee de fase1_mapa
 
     @property
     def in_dir(self) -> Path:
         base = Path(self.input_dir)
         previa3 = base / ("fase1_mapa" if self.skip_people else "fase2_personas")
-        return {0: base, 1: base, 2: base / "fase1_mapa", 3: previa3}[self.phase]
+        return {0: base, 1: base, 2: base / "fase1_mapa", 3: previa3, 4: base / "outputs"}[self.phase]
 
     @property
     def out_dir(self) -> Path:
         base = Path(self.input_dir)
-        return {0: base / "outputs", 1: base / "fase1_mapa", 2: base / "fase2_personas", 3: base / "outputs"}[self.phase]
+        return {0: base / "outputs", 1: base / "fase1_mapa", 2: base / "fase2_personas", 3: base / "outputs",
+                4: base / "outputs"}[self.phase]
 
 
 def list_images(folder: Path) -> list[Path]:
@@ -55,6 +57,8 @@ def _process(cfg: RunConfig, path: Path, people, overlay):
         return phase1_map(path, cfg.out_dir, min_keep=cfg.min_area_ratio, force=cfg.force)
     if cfg.phase == 2:
         return phase2_people(path, cfg.out_dir, people, cfg.force)
+    if cfg.phase == 4:
+        return phase4_size(path, cfg.min_side)
     if cfg.phase == 3:
         return phase3_text(path, cfg.out_dir, overlay, cfg.sides.get(path.name, "ninguno"), cfg.min_area_ratio, cfg.force)
     return process_image(path, cfg.out_dir, people, overlay, cfg.min_area_ratio, cfg.force)

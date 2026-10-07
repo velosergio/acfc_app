@@ -32,6 +32,8 @@ def build_backend(name: str, phase: int = 0):
     if name == "fake":
         return FakePeople(), FakeOverlay()
     people = overlay = None
+    if phase == 4:
+        return people, overlay
     if phase in (0, 2):
         from acfc.core.people import PersonFilter
         people = PersonFilter()

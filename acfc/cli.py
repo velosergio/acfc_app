@@ -5,7 +5,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from acfc.core.runner import RunConfig, make_runner
 
@@ -18,9 +18,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("ruta", type=Path, help="carpeta con las imagenes")
     ap.add_argument("--modo", choices=["fases", "unico"], default="fases",
                     help="fases: mapa -> personas -> texto (una carpeta por fase); unico: una sola pasada")
-    ap.add_argument("--fase", choices=["1", "2", "3", "todas"], default="todas", help="fase a ejecutar (modo fases)")
+    ap.add_argument("--fase", choices=["1", "2", "3", "4", "todas"], default="todas", help="fase a ejecutar (modo fases)")
     ap.add_argument("--sin-personas", action="store_true",
                     help="saltar la fase 2 (personas): mapa -> texto; la fase 3 lee de fase1_mapa")
+    ap.add_argument("--min-lado", type=int, default=500,
+                    help="fase 4: se eliminan las imagenes con ancho o alto menor a estos px (por defecto 500)")
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--min-area", type=float, default=0.4, help="area minima del recorte (0-1) antes de marcar para revisar")
     ap.add_argument("--force", action="store_true", help="rehacer imagenes que ya existen en la carpeta de salida")
@@ -37,12 +39,12 @@ def main(argv: list[str] | None = None) -> int:
     if not args.ruta.is_dir():
         print(f"Error: la carpeta no existe: {args.ruta}", file=sys.stderr)
         return 2
-    todas = (1, 3) if args.sin_personas else (1, 2, 3)
+    todas = (1, 3, 4) if args.sin_personas else (1, 2, 3, 4)
     phases = todas if args.fase == "todas" else (int(args.fase),)
     cfg = RunConfig(args.ruta, workers=max(1, args.workers), min_area_ratio=args.min_area,
-                    force=args.force, backend=args.backend, mode=args.modo, phases=phases, skip_people=args.sin_personas)
+                    force=args.force, backend=args.backend, mode=args.modo, phases=phases, skip_people=args.sin_personas, min_side=args.min_lado)
     runner = make_runner(cfg)
-    columns = (TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn(), TimeElapsedColumn())
+    columns = (TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn(), TimeElapsedColumn(), TimeRemainingColumn())
     worker_tasks: dict[int, int] = {}
     last: dict = {}
     try:

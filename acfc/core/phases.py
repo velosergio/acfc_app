@@ -89,3 +89,16 @@ def phase3_text(path: Path, out_dir: Path, overlay, side: str = "ninguno",
         return ImageResult(path.name, "saved", "", area_ratio=ratio)
     except Exception as exc:
         return ImageResult(path.name, "error", f"{type(exc).__name__}: {exc}")
+
+
+def phase4_size(path: Path, min_side: int = 500) -> ImageResult:
+    """Fase 4: elimina de la carpeta de salida las imagenes con ancho o alto menor de min_side px."""
+    try:
+        with Image.open(path) as im:
+            w, h = im.size
+        if min(w, h) < min_side:
+            path.unlink()
+            return ImageResult(path.name, "discarded", f"menor de {min_side}px ({w}x{h})")
+        return ImageResult(path.name, "saved", f"{w}x{h}")
+    except Exception as exc:
+        return ImageResult(path.name, "error", f"{type(exc).__name__}: {exc}")

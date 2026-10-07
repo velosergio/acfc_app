@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QMainWindow, QMessageBox, QProgressBar, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from acfc.core.runner import RunConfig, make_runner
+from acfc.core.timing import eta_seconds, fmt_hms
 
 
 class RunnerThread(QThread):
@@ -49,12 +51,18 @@ class MainWindow(QMainWindow):
         self.workers_spin.setValue(2)
         self.force_check = QCheckBox("Rehacer las que ya existen en la carpeta de salida")
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["Por fases (1→2→3)", "Fases 1 y 3 (sin personas)", "Solo fase 1 (mapa)",
-                                  "Solo fase 2 (personas)", "Solo fase 3 (texto)", "Una sola pasada"])
+        self.mode_combo.addItems(["Por fases (1→2→3→4)", "Fases 1, 3 y 4 (sin personas)", "Solo fase 1 (mapa)",
+                                  "Solo fase 2 (personas)", "Solo fase 3 (texto)", "Solo fase 4 (tamaño mínimo)",
+                                  "Una sola pasada"])
+        self.min_side_spin = QSpinBox()
+        self.min_side_spin.setRange(0, 10000)
+        self.min_side_spin.setValue(500)
+        self.min_side_spin.setSuffix(" px")
         form = QFormLayout()
         form.addRow("Carpeta:", row)
         form.addRow("Modo:", self.mode_combo)
         form.addRow("Workers:", self.workers_spin)
+        form.addRow("Lado mínimo (fase 4):", self.min_side_spin)
         form.addRow("", self.force_check)
 
         self.start_btn = QPushButton("Iniciar")
@@ -69,6 +77,7 @@ class MainWindow(QMainWindow):
         self.overall = QProgressBar()
         self.overall.setFormat("General: %v / %m")
         self.phase_label = QLabel("")
+        self.time_label = QLabel("Tiempo: --:--:--")
         self.workers_box = QGroupBox("Workers")
         self.workers_layout = QVBoxLayout(self.workers_box)
         self.status = QLabel("Listo.")
@@ -82,11 +91,36 @@ class MainWindow(QMainWindow):
         lay.addLayout(buttons)
         lay.addWidget(self.overall)
         lay.addWidget(self.phase_label)
+        lay.addWidget(self.time_label)
         lay.addWidget(self.workers_box)
         lay.addWidget(self.status)
         lay.addWidget(QLabel("Imágenes descartadas:"))
         lay.addWidget(self.table)
         self.setCentralWidget(central)
+
+        self._now = time.monotonic
+        self._t0: float | None = None          # inicio de toda la corrida
+        self._phase_t0: float | None = None    # inicio de la fase actual
+        self._phase_done = 0
+        self._phase_total = 0
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000)
+        self._timer.timeout.connect(self.refresh_time)
+
+    def begin_timing(self) -> None:
+        self._t0 = self._phase_t0 = self._now()
+        self._phase_done = self._phase_total = 0
+        self.refresh_time()
+
+    def refresh_time(self) -> None:
+        if self._t0 is None:
+            return
+        now = self._now()
+        txt = f"Tiempo total {fmt_hms(now - self._t0)}"
+        if self._phase_t0 is not None and self._phase_total:
+            eta = eta_seconds(now - self._phase_t0, self._phase_done, self._phase_total)
+            txt += f" · ETA fase {fmt_hms(eta)}"
+        self.time_label.setText(txt)
 
     def _browse(self) -> None:
         d = QFileDialog.getExistingDirectory(self, "Carpeta de imágenes")
@@ -95,10 +129,10 @@ class MainWindow(QMainWindow):
 
     def build_config(self) -> RunConfig:
         idx = self.mode_combo.currentIndex()
-        phases = {0: (1, 2, 3), 1: (1, 3), 2: (1,), 3: (2,), 4: (3,)}.get(idx, (1, 2, 3))
+        phases = {0: (1, 2, 3, 4), 1: (1, 3, 4), 2: (1,), 3: (2,), 4: (3,), 5: (4,)}.get(idx, (1, 2, 3, 4))
         return RunConfig(Path(self.path_edit.text().strip()), workers=self.workers_spin.value(),
-                         force=self.force_check.isChecked(), mode="unico" if idx == 5 else "fases", phases=phases,
-                         skip_people=idx == 1)
+                         force=self.force_check.isChecked(), mode="unico" if idx == 6 else "fases", phases=phases,
+                         skip_people=idx == 1, min_side=self.min_side_spin.value())
 
     def _start(self) -> None:
         folder = Path(self.path_edit.text().strip())
@@ -109,6 +143,8 @@ class MainWindow(QMainWindow):
         self.start_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.status.setText("Procesando…")
+        self.begin_timing()
+        self._timer.start()
         self.thread_ = RunnerThread(self.build_config())
         self.thread_.event.connect(self.handle_event)
         self.thread_.start()
@@ -123,6 +159,9 @@ class MainWindow(QMainWindow):
         if t == "start":
             self.overall.setRange(0, ev["total"])
             self.overall.setValue(0)
+            self._phase_t0, self._phase_done, self._phase_total = self._now(), 0, ev["total"]
+            if self._t0 is None:                 # eventos sin pasar por _start (p. ej. pruebas)
+                self._t0 = self._phase_t0
             self.phase_label.setText(f"Fase {ev['fase']}" if ev.get("fase") else "")
             while self.workers_layout.count():
                 self.workers_layout.takeAt(0).widget().deleteLater()
@@ -141,6 +180,7 @@ class MainWindow(QMainWindow):
             bar = self.worker_bars[ev["worker"]]
             bar.setValue(bar.value() + 1)
             self.overall.setValue(self.overall.value() + 1)
+            self._phase_done += 1
             if ev["status"] == "discarded":
                 r = self.table.rowCount()
                 self.table.insertRow(r)
@@ -166,6 +206,8 @@ class MainWindow(QMainWindow):
                                     f"descartadas={c.get('discarded', 0)} errores={c.get('error', 0)}")
             self.start_btn.setEnabled(True)
             self.cancel_btn.setEnabled(False)
+            self._timer.stop()
+            self.refresh_time()
 
     def closeEvent(self, e) -> None:  # noqa: N802
         if self.thread_ and self.thread_.isRunning():

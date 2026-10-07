@@ -39,17 +39,17 @@ def test_selector_de_modo_llega_a_la_configuracion(tmp_path):
     app = QApplication.instance() or QApplication([])
     win = MainWindow()
     win.path_edit.setText(str(tmp_path))
-    assert win.mode_combo.count() == 6
+    assert win.mode_combo.count() == 7
     win.mode_combo.setCurrentIndex(0)
     cfg = win.build_config()
-    assert (cfg.mode, cfg.phases, cfg.skip_people) == ("fases", (1, 2, 3), False)
-    win.mode_combo.setCurrentIndex(1)                              # Fases 1 y 3 (sin personas)
+    assert (cfg.mode, cfg.phases, cfg.skip_people) == ("fases", (1, 2, 3, 4), False)
+    win.mode_combo.setCurrentIndex(1)                              # Fases 1, 3 y 4 (sin personas)
     cfg = win.build_config()
-    assert (cfg.mode, cfg.phases, cfg.skip_people) == ("fases", (1, 3), True)
+    assert (cfg.mode, cfg.phases, cfg.skip_people) == ("fases", (1, 3, 4), True)
     win.mode_combo.setCurrentIndex(3)                              # Solo fase 2
     cfg = win.build_config()
     assert (cfg.mode, cfg.phases) == ("fases", (2,))
-    win.mode_combo.setCurrentIndex(5)
+    win.mode_combo.setCurrentIndex(6)
     assert win.build_config().mode == "unico"
 
 

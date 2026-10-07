@@ -5,7 +5,7 @@ def test_cli_procesa_carpeta_con_backend_fake(tmp_path, make_image):
     for i in range(6):
         make_image(tmp_path / f"i{i}.jpg")
     make_image(tmp_path / "blanca.jpg", color=(255, 0, 0))
-    code = main([str(tmp_path), "--workers", "2", "--backend", "fake"])
+    code = main([str(tmp_path), "--workers", "2", "--backend", "fake", "--min-lado", "1"])
     assert code == 0
     assert len(list((tmp_path / "outputs").glob("*.jpg"))) == 6
 
@@ -19,7 +19,7 @@ def test_cli_por_fases_es_el_modo_por_defecto(tmp_path, make_image):
     for i in range(4):
         make_image(tmp_path / f"i{i}.jpg", size=(100, 100))
     make_image(tmp_path / "blanca.jpg", size=(100, 100), color=(255, 0, 0))
-    assert main([str(tmp_path), "--workers", "2", "--backend", "fake"]) == 0
+    assert main([str(tmp_path), "--workers", "2", "--backend", "fake", "--min-lado", "1"]) == 0
     assert len(list((tmp_path / "fase1_mapa").glob("*.jpg"))) == 5
     assert len(list((tmp_path / "fase2_personas").glob("*.jpg"))) == 4
     assert len(list((tmp_path / "outputs").glob("*.jpg"))) == 4
@@ -46,6 +46,6 @@ def test_cli_fase_sin_la_carpeta_anterior_da_error_claro(tmp_path, capsys):
 def test_cli_sin_personas_salta_la_fase_2(tmp_path, make_image):
     make_image(tmp_path / "a.jpg", size=(100, 100))
     make_image(tmp_path / "blanca.jpg", size=(100, 100), color=(255, 0, 0))
-    assert main([str(tmp_path), "--sin-personas", "--backend", "fake"]) == 0
+    assert main([str(tmp_path), "--sin-personas", "--backend", "fake", "--min-lado", "1"]) == 0
     assert not (tmp_path / "fase2_personas").exists()
     assert len(list((tmp_path / "outputs").glob("*.jpg"))) == 2
