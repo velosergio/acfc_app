@@ -99,6 +99,9 @@ class Runner:
     def events(self) -> Iterator[dict]:
         cfg = self.cfg
         cfg.out_dir.mkdir(parents=True, exist_ok=True)
+        if cfg.force:  # al rehacer todo, los logs de la corrida anterior ya no valen
+            for name, _header in _Logs.FILES.values():
+                (cfg.out_dir / name).unlink(missing_ok=True)
         files = list_images(cfg.input_dir)
         batches = make_batches([str(p) for p in files], cfg.batch_size)
         n_workers = min(cfg.workers, len(batches))

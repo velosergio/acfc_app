@@ -7,6 +7,17 @@ from PySide6.QtWidgets import QApplication
 from acfc.gui import MainWindow
 
 
+def test_casilla_rehacer_existentes_llega_a_la_configuracion(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    assert win.force_check.isChecked() is False
+    win.path_edit.setText(str(tmp_path))
+    win.workers_spin.setValue(1)
+    win.force_check.setChecked(True)
+    cfg = win.build_config()
+    assert cfg.force is True and cfg.workers == 1 and cfg.input_dir == tmp_path
+
+
 def test_handle_event_actualiza_barras_y_tabla():
     app = QApplication.instance() or QApplication([])
     win = MainWindow()

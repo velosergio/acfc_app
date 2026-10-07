@@ -41,6 +41,16 @@ def test_corrida_completa_con_backend_fake(tmp_path, make_image):
     assert [r["archivo"] for r in err] == ["rota.jpg"]
 
 
+def test_force_rehace_salidas_y_reinicia_los_logs(tmp_path, make_image):
+    make_image(tmp_path / "ok.jpg")
+    make_image(tmp_path / "blanca.jpg", color=(255, 0, 0))
+    _collect(RunConfig(tmp_path, workers=1, backend="fake"))
+    _, events = _collect(RunConfig(tmp_path, workers=1, backend="fake", force=True))
+    assert events[-1]["counts"] == {"saved": 1, "discarded": 1}          # rehizo ok.jpg, no lo omitio
+    desc = list(csv.DictReader((tmp_path / "outputs" / "log_descartadas.csv").open(encoding="utf-8")))
+    assert [r["archivo"] for r in desc] == ["blanca.jpg"]                # sin filas duplicadas de la corrida anterior
+
+
 def test_carpeta_vacia_termina_limpio(tmp_path):
     _, events = _collect(RunConfig(tmp_path, workers=3, backend="fake"))
     assert [e["type"] for e in events] == ["start", "finished"]

@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import (QApplication, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QMainWindow, QMessageBox, QProgressBar, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -44,9 +44,11 @@ class MainWindow(QMainWindow):
         self.workers_spin = QSpinBox()
         self.workers_spin.setRange(1, 8)
         self.workers_spin.setValue(2)
+        self.force_check = QCheckBox("Rehacer las que ya existen en outputs")
         form = QFormLayout()
         form.addRow("Carpeta:", row)
         form.addRow("Workers:", self.workers_spin)
+        form.addRow("", self.force_check)
 
         self.start_btn = QPushButton("Iniciar")
         self.cancel_btn = QPushButton("Cancelar")
@@ -82,6 +84,10 @@ class MainWindow(QMainWindow):
         if d:
             self.path_edit.setText(d)
 
+    def build_config(self) -> RunConfig:
+        return RunConfig(Path(self.path_edit.text().strip()), workers=self.workers_spin.value(),
+                         force=self.force_check.isChecked())
+
     def _start(self) -> None:
         folder = Path(self.path_edit.text().strip())
         if not folder.is_dir():
@@ -91,7 +97,7 @@ class MainWindow(QMainWindow):
         self.start_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.status.setText("Procesando…")
-        self.thread_ = RunnerThread(RunConfig(folder, workers=self.workers_spin.value()))
+        self.thread_ = RunnerThread(self.build_config())
         self.thread_.event.connect(self.handle_event)
         self.thread_.start()
 
