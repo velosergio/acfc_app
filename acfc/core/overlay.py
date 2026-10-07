@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 import cv2
@@ -10,34 +11,86 @@ from acfc.core.crop import Box, pad_box
 
 @dataclass(frozen=True)
 class OverlayParams:
-    strip_ratio: float = 0.30        # franja superior/inferior donde se busca texto
-    right_align_min: float = 0.80    # el borde derecho de cada línea debe pasar de este x relativo
-    min_ocr_conf: float = 0.15
+    # texto
+    strip_ratio: float = 0.42        # franja superior/inferior donde se busca texto
+    weak_conf: float = 0.02          # las líneas débiles solo cuentan si se unen a la cadena
+    anchor_max: float = 0.15         # la primera línea vista debe estar a menos de esta fracción de H del borde
+    right_align_min: float = 0.90    # el borde derecho de cada línea debe pasar de este x relativo
+    right_align_tol: float = 0.03    # los bordes derechos de las líneas deben coincidir (relativo a W)
+    chain_extend: float = 1.5        # alturas de línea que se extienden más allá de la última línea vista
+    min_ocr_conf: float = 0.30       # una línea es "fuerte" con esta confianza o más
+    line_h_min: float = 0.012        # alto de línea de texto relativo al ancho de la imagen
+    line_h_max: float = 0.07
+    chain_gap: float = 4.0           # separación máxima entre líneas (en alturas de línea)
+    min_lines: int = 2               # líneas fuertes mínimas en el bloque
+    min_digits: int = 3              # el bloque GPS siempre trae fecha/coordenadas
+    text_pad_left: float = 0.03      # margen extra a la izquierda del bloque (por si el OCR perdió la línea más larga)
     margin: float = 0.012            # margen extra alrededor de cada caja
-    tile_corner_w: float = 0.45      # zona de esquina donde se busca el minimapa
-    tile_corner_h: float = 0.40
-    tile_min_w: float = 0.10
-    tile_min_h: float = 0.05
-    tile_fill: float = 0.90          # fracción mínima de píxeles "color mapa" dentro del rectángulo
-    tile_edge: float = 25.0          # contraste mínimo en los bordes internos del rectángulo
-    compass_corner: float = 0.30
-    compass_ring_dark: float = 0.60  # fracción mínima del anillo oscuro y poco saturado
+    # minimapa (pin rojo de Google en el centro del mosaico)
+    pin_area_min: float = 0.0004     # relativo a W²
+    pin_area_max: float = 0.004
+    tile_min_w: float = 0.12         # ancho del mosaico relativo a W
+    tile_max_w: float = 0.45
+    tile_aspect_min: float = 0.7     # alto/ancho del mosaico
+    tile_aspect_max: float = 1.4
+    tile_fill: float = 0.5           # fracción de píxeles "color mapa" alrededor del pin
+    # brújula (aguja cian)
+    needle_area_min: float = 0.0003  # relativo a W²
+    compass_size: float = 0.21       # lado de la brújula relativo a W
 
 
-def text_boxes_from_ocr(results, width: int, y_offset: int, p: OverlayParams) -> list[Box]:
-    xs0, ys0, xs1, ys1 = [], [], [], []
-    for pts, _text, conf in results:
-        if conf < p.min_ocr_conf:
+def _alnum(text: str) -> int:
+    return len(re.findall(r"\w", text))
+
+
+def text_chain(results, width: int, height: int, y_offset: int, at_top: bool,
+               p: OverlayParams) -> tuple[Box, int] | None:
+    """Bloque de texto de la app GPS: líneas alineadas a la derecha, pegadas al borde superior o inferior.
+
+    Devuelve (caja, nº de líneas fuertes) o None.
+    """
+    lines = []  # (x0, y0, x1, y1, fuerte, dígitos)
+    for pts, text, conf in results:
+        if conf < p.weak_conf or _alnum(text) < 2:
             continue
         px = [int(pt[0]) for pt in pts]
-        py = [int(pt[1]) for pt in pts]
-        if max(px) < p.right_align_min * width:
+        py = [int(pt[1]) + y_offset for pt in pts]
+        h = max(py) - min(py)
+        if max(px) < p.right_align_min * width or not (p.line_h_min * width <= h <= p.line_h_max * width):
             continue
-        xs0.append(min(px)); ys0.append(min(py) + y_offset)
-        xs1.append(max(px)); ys1.append(max(py) + y_offset)
-    if not xs0:
-        return []
-    return [(min(xs0), min(ys0), max(xs1), max(ys1))]
+        lines.append((min(px), min(py), max(px), max(py), conf >= p.min_ocr_conf, sum(ch.isdigit() for ch in text)))
+    if not lines:
+        return None
+    med_right = float(np.median([b[2] for b in lines]))
+    lines = [b for b in lines if abs(b[2] - med_right) <= p.right_align_tol * width]
+    if not lines:
+        return None
+    lines.sort(key=(lambda b: b[1]) if at_top else (lambda b: -b[3]))
+    edge_dist = lines[0][1] if at_top else height - lines[0][3]
+    if edge_dist > p.anchor_max * height:
+        return None
+    chain = [lines[0]]
+    for b in lines[1:]:
+        med_h = float(np.median([c[3] - c[1] for c in chain]))
+        gap = (b[1] - max(c[3] for c in chain)) if at_top else (min(c[1] for c in chain) - b[3])
+        if gap <= p.chain_gap * med_h:
+            chain.append(b)
+    strong = sum(1 for c in chain if c[4])
+    if strong < p.min_lines or sum(c[5] for c in chain) < p.min_digits:
+        return None
+    x0 = max(0, min(c[0] for c in chain) - int(p.text_pad_left * width))
+    ext = int(p.chain_extend * float(np.median([c[3] - c[1] for c in chain])))
+    if at_top:
+        y0, y1 = 0, min(height, max(c[3] for c in chain) + ext)
+    else:
+        y0, y1 = max(0, min(c[1] for c in chain) - ext), height
+    return (x0, y0, width, y1), strong
+
+
+def text_boxes_from_ocr(results, width: int, height: int, y_offset: int, strip_h: int,
+                        at_top: bool, p: OverlayParams) -> list[Box]:
+    found = text_chain(results, width, height, y_offset, at_top, p)
+    return [found[0]] if found else []
 
 
 def _map_like_mask(rgb: np.ndarray) -> np.ndarray:
@@ -45,80 +98,59 @@ def _map_like_mask(rgb: np.ndarray) -> np.ndarray:
     return ((hsv[..., 1] <= 90) & (hsv[..., 2] >= 185)).astype(np.uint8)
 
 
-def _edge_contrast(a: np.ndarray, b: np.ndarray) -> float:
-    """a y b: franjas (n, k, 3) a ambos lados de un borde; contraste mediano de color medio."""
-    return float(np.median(np.abs(a.astype(np.int32).mean(axis=1) - b.astype(np.int32).mean(axis=1)).sum(axis=-1)))
-
-
-def _tile_in_crop(crop: np.ndarray, full_w: int, full_h: int, p: OverlayParams) -> tuple[int, int] | None:
-    """Busca un rectángulo anclado en la esquina (0,0) del recorte que parezca un minimapa."""
-    ch, cw = crop.shape[:2]
-    step = max(2, full_w // 200)
-    min_w, min_h = int(p.tile_min_w * full_w), int(p.tile_min_h * full_h)
-    ws = np.arange(min_w, cw - 8, step)
-    hs = np.arange(min_h, ch - 8, step)
-    if len(ws) == 0 or len(hs) == 0:
-        return None
-    ii = cv2.integral(_map_like_mask(crop)).astype(np.float64)
-    area = hs[:, None] * ws[None, :]
-    fill = ii[np.ix_(hs, ws)] / area
-    cand = np.argwhere(fill >= p.tile_fill)
-    if len(cand) == 0:
-        return None
-    order = np.argsort(-area[cand[:, 0], cand[:, 1]])
-    for k in order[:400]:
-        hi, wi = cand[k]
-        w, h = int(ws[wi]), int(hs[hi])
-        right = _edge_contrast(crop[:h, w - 4:w].transpose(1, 0, 2), crop[:h, w:w + 4].transpose(1, 0, 2))
-        bottom = _edge_contrast(crop[h - 4:h, :w], crop[h:h + 4, :w])
-        if right >= p.tile_edge and bottom >= p.tile_edge:
-            return w, h
-    return None
+def _components(mask: np.ndarray):
+    n, _labels, stats, cents = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    for i in range(1, n):
+        x, y, w, h, area = stats[i]
+        yield int(x), int(y), int(w), int(h), int(area), cents[i]
 
 
 def find_minimap(rgb: np.ndarray, p: OverlayParams) -> list[Box]:
     H, W = rgb.shape[:2]
-    cw, chh = int(p.tile_corner_w * W), int(p.tile_corner_h * H)
+    region_w, region_h = int(p.tile_max_w * W / 2) + 2, min(H, int(0.35 * W))
     boxes: list[Box] = []
     for right in (False, True):
         for bottom in (False, True):
             view = rgb[:, ::-1] if right else rgb
             view = view[::-1] if bottom else view
-            found = _tile_in_crop(np.ascontiguousarray(view[:chh, :cw]), W, H, p)
-            if not found:
-                continue
-            w, h = found
-            x0, x1 = (W - w, W) if right else (0, w)
-            y0, y1 = (H - h, H) if bottom else (0, h)
-            boxes.append((x0, y0, x1, y1))
+            crop = np.ascontiguousarray(view[:region_h, :region_w])
+            hsv = cv2.cvtColor(crop, cv2.COLOR_RGB2HSV)
+            red = (((hsv[..., 0] <= 8) | (hsv[..., 0] >= 172)) & (hsv[..., 1] >= 140) & (hsv[..., 2] >= 150)).astype(np.uint8)
+            mapish = _map_like_mask(crop)
+            for x, y, w, h, area, (cx, _cy) in _components(red):
+                if not (p.pin_area_min * W * W <= area <= p.pin_area_max * W * W) or not (1.0 <= h / max(w, 1) <= 2.6):
+                    continue
+                tip = y if bottom else y + h  # en la vista volteada la punta del pin queda arriba
+                tw, th = int(2 * cx), int(2 * tip)
+                if not (p.tile_min_w * W <= tw <= p.tile_max_w * W) or not (p.tile_aspect_min <= th / tw <= p.tile_aspect_max):
+                    continue
+                m = int(1.5 * h)
+                win = mapish[max(0, y - m):y + h + m, max(0, x - m):x + w + m]
+                red_win = red[max(0, y - m):y + h + m, max(0, x - m):x + w + m]
+                other = win[red_win == 0]
+                if other.size == 0 or float(other.mean()) < p.tile_fill:
+                    continue
+                x0, x1 = (W - tw, W) if right else (0, tw)
+                y0, y1 = (H - th, H) if bottom else (0, th)
+                boxes.append((x0, max(y0, 0), x1, min(y1, H)))
+                break
     return boxes
 
 
 def find_compass(rgb: np.ndarray, p: OverlayParams) -> list[Box]:
     H, W = rgb.shape[:2]
-    c = int(p.compass_corner * W)
+    size = int(p.compass_size * W)
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    cyan = ((hsv[..., 0] >= 84) & (hsv[..., 0] <= 98) & (hsv[..., 1] >= 140) & (hsv[..., 2] >= 120)).astype(np.uint8)
     boxes: list[Box] = []
-    for ox in (0, W - c):
-        for oy in (0, H - c):
-            crop = rgb[oy:oy + c, ox:ox + c]
-            gray = cv2.medianBlur(cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY), 5)
-            circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, dp=1.2, minDist=c, param1=120, param2=40,
-                                       minRadius=int(0.04 * W), maxRadius=int(0.14 * W))
-            if circles is None:
-                continue
-            hsv = cv2.cvtColor(crop, cv2.COLOR_RGB2HSV)
-            for cx, cy, r in circles[0]:
-                ang = np.linspace(0, 2 * np.pi, 72, endpoint=False)
-                px = (cx + 0.93 * r * np.cos(ang)).astype(int)
-                py = (cy + 0.93 * r * np.sin(ang)).astype(int)
-                ok = (px >= 0) & (px < c) & (py >= 0) & (py < c)
-                if ok.sum() < 20:
-                    continue
-                s, v = hsv[py[ok], px[ok], 1], hsv[py[ok], px[ok], 2]
-                if float(((v < 120) & (s < 80)).mean()) >= p.compass_ring_dark:
-                    box = (max(0, int(cx - r)) + ox, max(0, int(cy - r)) + oy,
-                           min(c, int(cx + r)) + ox, min(c, int(cy + r)) + oy)
-                    boxes.append(box)
+    for right in (False, True):
+        for bottom in (False, True):
+            x0, x1 = (W - size, W) if right else (0, size)
+            y0, y1 = (H - size, H) if bottom else (0, size)
+            sub = cyan[max(y0, 0):y1, x0:x1]
+            for _x, _y, w, h, area, _c in _components(sub):
+                if area >= p.needle_area_min * W * W and w <= size * 0.5 and h <= size * 0.8:
+                    boxes.append((x0, max(y0, 0), x1, y1))
                     break
     return boxes
 
@@ -134,9 +166,13 @@ class OverlayDetector:
     def detect(self, rgb: np.ndarray) -> list[Box]:
         H, W = rgb.shape[:2]
         strip = int(self.p.strip_ratio * H)
-        boxes: list[Box] = []
-        for y0, y1 in ((0, strip), (H - strip, H)):
-            results = self.reader.readtext(np.ascontiguousarray(rgb[y0:y1]))
-            boxes += text_boxes_from_ocr(results, W, y0, self.p)
+        candidates = []
+        for y0, at_top in ((0, True), (H - strip, False)):
+            results = self.reader.readtext(np.ascontiguousarray(rgb[y0:y0 + strip]), low_text=0.3,
+                                           text_threshold=0.5, contrast_ths=0.3, adjust_contrast=0.7)
+            found = text_chain(results, W, H, y0, at_top, self.p)
+            if found:
+                candidates.append(found)
+        boxes: list[Box] = [max(candidates, key=lambda c: c[1])[0]] if candidates else []  # un solo bloque por foto
         boxes += find_minimap(rgb, self.p) + find_compass(rgb, self.p)
         return [pad_box(b, W, H, self.p.margin) for b in boxes]

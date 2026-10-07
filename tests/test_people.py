@@ -46,6 +46,20 @@ def test_persona_muy_pequena_se_ignora():
     assert decide(img, [box], PersonThresholds()).discard is False
 
 
+def test_cielo_blanco_detras_no_cuenta_como_gorra():
+    img = np.full((400, 300, 3), 255, dtype=np.uint8)      # fondo blanco (cielo nublado)
+    box = (100, 100, 200, 350)
+    _paint(img, box, 0.1, 0.2, 0.9, 0.55, value=250)       # torso "blanco" tambien
+    assert decide(img, [box]).discard is False
+
+
+def test_gorra_blanca_con_fondo_oscuro_descarta_aunque_ocupe_poco():
+    img, box = _img(), (50, 100, 150, 350)
+    _paint(img, box, 0.25, 0.0, 0.55, 0.12)   # gorra: solo ~40 % de la zona de cabeza
+    _paint(img, box, 0.1, 0.2, 0.9, 0.55)
+    assert decide(img, [box]).discard is True
+
+
 def test_una_persona_blanca_entre_varias_descarta():
     img = _img()
     a, b = (10, 100, 80, 350), (110, 100, 190, 350)
