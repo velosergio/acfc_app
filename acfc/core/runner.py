@@ -60,6 +60,17 @@ def _process(cfg: RunConfig, path: Path, people, overlay):
     return process_image(path, cfg.out_dir, people, overlay, cfg.min_area_ratio, cfg.force)
 
 
+def free_memory() -> None:
+    """Libera memoria entre lotes: basura de Python y cache de VRAM de torch (si ya esta cargado)."""
+    import gc
+    import sys
+
+    gc.collect()
+    torch = sys.modules.get("torch")
+    if torch is not None and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def worker_main(worker_id: int, task_q, event_q, cfg: RunConfig, cancel_ev) -> None:
     try:
         people, overlay = build_backend(cfg.backend, cfg.phase)
@@ -79,6 +90,7 @@ def worker_main(worker_id: int, task_q, event_q, cfg: RunConfig, cancel_ev) -> N
                 break
             res = _process(cfg, Path(p), people, overlay)
             event_q.put({"type": "image_done", "worker": worker_id, **asdict(res)})
+        free_memory()
     event_q.put({"type": "worker_done", "worker": worker_id})
 
 

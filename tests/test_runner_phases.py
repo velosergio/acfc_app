@@ -91,3 +91,8 @@ def test_force_en_fase_reinicia_logs_y_manifiesto(tmp_path, make_image):
     out = tmp_path / "fase2_personas"
     desc = list(csv.DictReader((out / "log_fase2_descartadas.csv").open(encoding="utf-8")))
     assert len(desc) == 1                                     # sin fila duplicada de la corrida anterior
+
+
+def test_free_memory_no_falla_sin_torch_ni_gpu():
+    from acfc.core.runner import free_memory
+    free_memory()

@@ -197,12 +197,14 @@ def find_compass(rgb: np.ndarray, p: OverlayParams) -> list[Box]:
 
 
 class OverlayDetector:
-    def __init__(self, gpu: bool = True, params: OverlayParams = OverlayParams()):
+    def __init__(self, gpu: bool = True, params: OverlayParams = OverlayParams(), recognizer: bool = True):
         import easyocr
         import torch
 
         self.p = params
-        self.reader = easyocr.Reader(["es", "en"], gpu=gpu and torch.cuda.is_available(), verbose=False)
+        # recognizer=False carga solo el detector de texto (la fase 3 no lee nada): menos RAM y VRAM
+        self.reader = easyocr.Reader(["es", "en"], gpu=gpu and torch.cuda.is_available(), verbose=False,
+                                     recognizer=recognizer)
 
     def text_boxes(self, rgb: np.ndarray, sides: tuple[str, ...]) -> list[Box]:
         """Bloque de texto GPS solo por detección (sin reconocer). Con el lado del corte conocido basta una línea."""

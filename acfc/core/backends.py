@@ -37,5 +37,5 @@ def build_backend(name: str, phase: int = 0):
         people = PersonFilter()
     if phase in (0, 3):
         from acfc.core.overlay import OverlayDetector
-        overlay = OverlayDetector()
+        overlay = OverlayDetector(recognizer=phase == 0)   # fase 3: solo detector
     return people, overlay
