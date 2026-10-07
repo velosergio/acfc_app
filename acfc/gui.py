@@ -4,11 +4,11 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QMainWindow, QMessageBox, QProgressBar, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
-from acfc.core.runner import RunConfig, Runner
+from acfc.core.runner import RunConfig, make_runner
 
 
 class RunnerThread(QThread):
@@ -16,7 +16,7 @@ class RunnerThread(QThread):
 
     def __init__(self, cfg: RunConfig):
         super().__init__()
-        self.runner = Runner(cfg)
+        self.runner = make_runner(cfg)
 
     def run(self) -> None:
         for ev in self.runner.events():
@@ -44,9 +44,13 @@ class MainWindow(QMainWindow):
         self.workers_spin = QSpinBox()
         self.workers_spin.setRange(1, 8)
         self.workers_spin.setValue(2)
-        self.force_check = QCheckBox("Rehacer las que ya existen en outputs")
+        self.force_check = QCheckBox("Rehacer las que ya existen en la carpeta de salida")
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["Por fases (1→2→3)", "Solo fase 1 (mapa)", "Solo fase 2 (personas)",
+                                  "Solo fase 3 (texto)", "Una sola pasada"])
         form = QFormLayout()
         form.addRow("Carpeta:", row)
+        form.addRow("Modo:", self.mode_combo)
         form.addRow("Workers:", self.workers_spin)
         form.addRow("", self.force_check)
 
@@ -61,6 +65,7 @@ class MainWindow(QMainWindow):
 
         self.overall = QProgressBar()
         self.overall.setFormat("General: %v / %m")
+        self.phase_label = QLabel("")
         self.workers_box = QGroupBox("Workers")
         self.workers_layout = QVBoxLayout(self.workers_box)
         self.status = QLabel("Listo.")
@@ -73,6 +78,7 @@ class MainWindow(QMainWindow):
         lay.addLayout(form)
         lay.addLayout(buttons)
         lay.addWidget(self.overall)
+        lay.addWidget(self.phase_label)
         lay.addWidget(self.workers_box)
         lay.addWidget(self.status)
         lay.addWidget(QLabel("Imágenes descartadas:"))
@@ -85,8 +91,10 @@ class MainWindow(QMainWindow):
             self.path_edit.setText(d)
 
     def build_config(self) -> RunConfig:
+        idx = self.mode_combo.currentIndex()
+        phases = {0: (1, 2, 3), 1: (1,), 2: (2,), 3: (3,)}.get(idx, (1, 2, 3))
         return RunConfig(Path(self.path_edit.text().strip()), workers=self.workers_spin.value(),
-                         force=self.force_check.isChecked())
+                         force=self.force_check.isChecked(), mode="unico" if idx == 4 else "fases", phases=phases)
 
     def _start(self) -> None:
         folder = Path(self.path_edit.text().strip())
@@ -111,6 +119,7 @@ class MainWindow(QMainWindow):
         if t == "start":
             self.overall.setRange(0, ev["total"])
             self.overall.setValue(0)
+            self.phase_label.setText(f"Fase {ev['fase']}" if ev.get("fase") else "")
             while self.workers_layout.count():
                 self.workers_layout.takeAt(0).widget().deleteLater()
             self.worker_bars = []
@@ -135,11 +144,18 @@ class MainWindow(QMainWindow):
                     self.table.setItem(r, c, QTableWidgetItem(v))
         elif t == "worker_error":
             self.status.setText(f"Error en worker {ev['worker']}: {ev['error']}")
+        elif t == "phase_done":
+            pass
         elif t == "finished":
             c = ev["counts"]
             estado = "Cancelado" if ev["cancelled"] else "Terminado"
-            self.status.setText(f"{estado}. guardadas={c.get('saved', 0)} revisar={c.get('review', 0)} "
-                                f"descartadas={c.get('discarded', 0)} errores={c.get('error', 0)}")
+            if ev.get("phases"):
+                detalle = " | ".join(f"Fase {n}: " + " ".join(f"{k}={v}" for k, v in sorted(cn.items()))
+                                     for n, cn in sorted(ev["phases"].items()))
+                self.status.setText(f"{estado}. {detalle}")
+            else:
+                self.status.setText(f"{estado}. guardadas={c.get('saved', 0)} revisar={c.get('review', 0)} "
+                                    f"descartadas={c.get('discarded', 0)} errores={c.get('error', 0)}")
             self.start_btn.setEnabled(True)
             self.cancel_btn.setEnabled(False)
 

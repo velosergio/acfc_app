@@ -33,3 +33,31 @@ def test_handle_event_actualiza_barras_y_tabla():
     assert win.table.rowCount() == 1 and win.table.item(0, 0).text() == "b.jpg"
     win.handle_event({"type": "finished", "counts": {"saved": 1, "discarded": 1}, "cancelled": False})
     assert win.start_btn.isEnabled() and not win.cancel_btn.isEnabled()
+
+
+def test_selector_de_modo_llega_a_la_configuracion(tmp_path):
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    win.path_edit.setText(str(tmp_path))
+    assert win.mode_combo.count() == 5
+    win.mode_combo.setCurrentIndex(0)
+    cfg = win.build_config()
+    assert (cfg.mode, cfg.phases) == ("fases", (1, 2, 3))
+    win.mode_combo.setCurrentIndex(2)
+    cfg = win.build_config()
+    assert (cfg.mode, cfg.phases) == ("fases", (2,))
+    win.mode_combo.setCurrentIndex(4)
+    assert win.build_config().mode == "unico"
+
+
+def test_eventos_por_fase_reinician_las_barras_y_muestran_la_fase():
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    win.handle_event({"type": "start", "fase": 1, "total": 4, "workers": 1, "batches": 1})
+    assert "1" in win.phase_label.text() and win.overall.maximum() == 4
+    win.handle_event({"type": "image_done", "worker": 0, "name": "a.jpg", "status": "cropped", "reason": "",
+                      "head": 0.0, "torso": 0.0, "area_ratio": 0.8, "fase": 1})
+    win.handle_event({"type": "phase_done", "fase": 1, "counts": {"cropped": 1}, "cancelled": False})
+    win.handle_event({"type": "start", "fase": 2, "total": 3, "workers": 2, "batches": 1})
+    assert "2" in win.phase_label.text() and win.overall.maximum() == 3 and win.overall.value() == 0
+    assert len(win.worker_bars) == 2
