@@ -11,9 +11,21 @@ class FakePeople:
 
 
 class FakeOverlay:
+    last_sides: tuple = ()
+
     def detect(self, rgb) -> list[Box]:
         h, w = rgb.shape[:2]
         return [(0, 0, w // 5, h // 10)]
+
+    def text_boxes(self, rgb, sides) -> list[Box]:
+        self.last_sides = tuple(sides)
+        h, w = rgb.shape[:2]
+        boxes = []
+        if "arriba" in sides:
+            boxes.append((0, 0, w // 5, h // 10))
+        if "abajo" in sides:
+            boxes.append((w - w // 5, h - h // 10, w, h))
+        return boxes
 
 
 def build_backend(name: str):

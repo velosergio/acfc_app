@@ -67,3 +67,112 @@ def test_fase1_archivo_corrupto_es_error_y_no_deja_tmp(tmp_path):
     r = phase1_map(bad, out)
     assert r.status == "error" and r.reason
     assert not list(out.glob(".*.tmp"))
+
+
+from acfc.core.backends import build_backend
+from acfc.core.phases import phase2_people, phase3_text
+
+
+def test_fase2_descarta_y_no_copia(tmp_path, make_image):
+    src = make_image(tmp_path / "w.jpg", color=(255, 0, 0))
+    out = tmp_path / "f2"; out.mkdir()
+    people, _ = build_backend("fake")
+    r = phase2_people(src, out, people)
+    assert r.status == "discarded" and not (out / "w.jpg").exists()
+
+
+def test_fase2_copia_sin_recomprimir_a_las_que_pasan(tmp_path, make_image):
+    src = make_image(tmp_path / "ok.jpg")
+    out = tmp_path / "f2"; out.mkdir()
+    people, _ = build_backend("fake")
+    r = phase2_people(src, out, people)
+    assert r.status == "copied"
+    assert (out / "ok.jpg").read_bytes() == src.read_bytes()
+
+
+def test_fase2_omite_force_y_error(tmp_path, make_image):
+    src = make_image(tmp_path / "ok.jpg")
+    out = tmp_path / "f2"; out.mkdir()
+    people, _ = build_backend("fake")
+    assert phase2_people(src, out, people).status == "copied"
+    assert phase2_people(src, out, people).status == "skipped"
+    assert phase2_people(src, out, people, force=True).status == "copied"
+    bad = tmp_path / "bad.jpg"; bad.write_bytes(b"basura")
+    assert phase2_people(bad, out, people).status == "error"
+
+
+def test_fase3_solo_mira_el_lado_del_manifiesto(tmp_path, make_image):
+    src = make_image(tmp_path / "a.jpg", size=(100, 100))
+    out = tmp_path / "out"; out.mkdir()
+    _, overlay = build_backend("fake")
+    r = phase3_text(src, out, overlay, side="abajo")
+    assert overlay.last_sides == ("abajo",)
+    assert r.status == "saved" and Image.open(out / "a.jpg").size == (100, 90)   # recorta la caja de abajo
+
+
+def test_fase3_sin_lado_o_ninguno_mira_las_dos_franjas(tmp_path, make_image):
+    src = make_image(tmp_path / "a.jpg", size=(100, 100))
+    out = tmp_path / "out"; out.mkdir()
+    _, overlay = build_backend("fake")
+    phase3_text(src, out, overlay)                      # sin manifiesto: lado por defecto
+    assert overlay.last_sides == ("arriba", "abajo")
+    phase3_text(src, out, overlay, side="ninguno", force=True)
+    assert overlay.last_sides == ("arriba", "abajo")
+
+
+def test_fase3_sin_texto_copia_los_bytes(tmp_path, make_image):
+    src = make_image(tmp_path / "a.jpg", size=(100, 100))
+    out = tmp_path / "out"; out.mkdir()
+
+    class SinTexto:
+        def text_boxes(self, rgb, sides):
+            return []
+
+    r = phase3_text(src, out, SinTexto())
+    assert r.status == "saved" and (out / "a.jpg").read_bytes() == src.read_bytes()
+
+
+def test_fase3_cajas_cubren_todo_guarda_original_y_revisa(tmp_path, make_image):
+    src = make_image(tmp_path / "a.jpg", size=(100, 100))
+    out = tmp_path / "out"; out.mkdir()
+
+    class Todo:
+        def text_boxes(self, rgb, sides):
+            return [(0, 0, 100, 100)]
+
+    r = phase3_text(src, out, Todo())
+    assert r.status == "review" and Image.open(out / "a.jpg").size == (100, 100)
+
+
+def test_fase3_recorte_pequeno_marca_revisar(tmp_path, make_image):
+    src = make_image(tmp_path / "a.jpg", size=(100, 100))
+    out = tmp_path / "out"; out.mkdir()
+
+    class Grande:
+        def text_boxes(self, rgb, sides):
+            return [(0, 0, 100, 70)]
+
+    r = phase3_text(src, out, Grande(), min_area_ratio=0.4)
+    assert r.status == "review" and r.area_ratio < 0.4 and (out / "a.jpg").exists()
+
+
+def test_fase3_respeta_la_orientacion_exif(tmp_path):
+    # 100x60 con orientacion 6 (girar 90): la imagen real es 60x100 y el recorte debe hacerse sobre eso
+    p = tmp_path / "r.jpg"
+    exif = Image.Exif(); exif[0x0112] = 6
+    Image.new("RGB", (100, 60), (10, 20, 30)).save(p, exif=exif)
+    out = tmp_path / "out"; out.mkdir()
+    _, overlay = build_backend("fake")
+    phase3_text(p, out, overlay, side="arriba")         # caja (0,0,12,10) sobre 60x100
+    assert Image.open(out / "r.jpg").size == (60, 90)
+
+
+def test_fase3_omite_force_y_error(tmp_path, make_image):
+    src = make_image(tmp_path / "a.jpg", size=(100, 100))
+    out = tmp_path / "out"; out.mkdir()
+    _, overlay = build_backend("fake")
+    assert phase3_text(src, out, overlay).status == "saved"
+    assert phase3_text(src, out, overlay).status == "skipped"
+    assert phase3_text(src, out, overlay, force=True).status == "saved"
+    bad = tmp_path / "bad.jpg"; bad.write_bytes(b"basura")
+    assert phase3_text(bad, out, overlay).status == "error"

@@ -195,16 +195,24 @@ class OverlayDetector:
         self.p = params
         self.reader = easyocr.Reader(["es", "en"], gpu=gpu and torch.cuda.is_available(), verbose=False)
 
-    def detect(self, rgb: np.ndarray) -> list[Box]:
+    def text_boxes(self, rgb: np.ndarray, sides: tuple[str, ...]) -> list[Box]:
         H, W = rgb.shape[:2]
         strip = int(self.p.strip_ratio * H)
         candidates = []
-        for y0, at_top in ((0, True), (H - strip, False)):
+        for y0, at_top, lado in ((0, True, "arriba"), (H - strip, False, "abajo")):
+            if lado not in sides:
+                continue
             results = self.reader.readtext(np.ascontiguousarray(rgb[y0:y0 + strip]), low_text=0.3,
-                                           text_threshold=0.5, contrast_ths=0.3, adjust_contrast=0.7)
+                                           text_threshold=0.5, contrast_ths=0.3, adjust_contrast=0.7, batch_size=8)
             found = text_chain(results, W, H, y0, at_top, self.p)
             if found:
                 candidates.append(found)
-        boxes: list[Box] = [max(candidates, key=lambda c: c[1])[0]] if candidates else []  # un solo bloque por foto
-        boxes += find_minimap(rgb, self.p) + find_compass(rgb, self.p)
-        return [pad_box(b, W, H, self.p.margin) for b in boxes]
+        if not candidates:
+            return []
+        return [pad_box(max(candidates, key=lambda c: c[1])[0], W, H, self.p.margin)]  # un solo bloque por foto
+
+    def detect(self, rgb: np.ndarray) -> list[Box]:
+        H, W = rgb.shape[:2]
+        boxes = self.text_boxes(rgb, ("arriba", "abajo"))
+        boxes += [pad_box(b, W, H, self.p.margin) for b in find_minimap(rgb, self.p) + find_compass(rgb, self.p)]
+        return boxes
