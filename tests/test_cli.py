@@ -41,3 +41,11 @@ def test_cli_modo_unico_conserva_el_comportamiento_anterior(tmp_path, make_image
 def test_cli_fase_sin_la_carpeta_anterior_da_error_claro(tmp_path, capsys):
     assert main([str(tmp_path), "--fase", "2", "--backend", "fake"]) == 2
     assert "falta la carpeta de la fase anterior" in capsys.readouterr().err
+
+
+def test_cli_sin_personas_salta_la_fase_2(tmp_path, make_image):
+    make_image(tmp_path / "a.jpg", size=(100, 100))
+    make_image(tmp_path / "blanca.jpg", size=(100, 100), color=(255, 0, 0))
+    assert main([str(tmp_path), "--sin-personas", "--backend", "fake"]) == 0
+    assert not (tmp_path / "fase2_personas").exists()
+    assert len(list((tmp_path / "outputs").glob("*.jpg"))) == 2

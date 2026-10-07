@@ -56,3 +56,16 @@ def test_cancelar_antes_de_empezar_no_ejecuta_fases_ni_deja_tmp(tmp_path, make_i
     assert events[-1]["type"] == "finished" and events[-1]["cancelled"] is True
     assert not [e for e in events if e["type"] == "start"]
     assert not list(tmp_path.rglob(".*.tmp"))
+
+
+def test_sin_personas_la_fase_3_lee_de_la_fase_1(tmp_path, make_image):
+    _foto_con_mapa(tmp_path / "mapa.jpg")
+    make_image(tmp_path / "blanca.jpg", size=(100, 100), color=(255, 0, 0))     # sin fase 2 no se descarta
+    cfg = RunConfig(tmp_path, mode="fases", phases=(1, 3), skip_people=True, workers=1, backend="fake")
+    assert cfg.in_dir == tmp_path                                                # fase 0 no cambia
+    from dataclasses import replace
+    assert replace(cfg, phase=3).in_dir == tmp_path / "fase1_mapa"
+    events = list(PhasedRunner(cfg).events())
+    assert [e["fase"] for e in events if e["type"] == "start"] == [1, 3]
+    assert not (tmp_path / "fase2_personas").exists()
+    assert (tmp_path / "outputs" / "blanca.jpg").exists() and (tmp_path / "outputs" / "mapa.jpg").exists()

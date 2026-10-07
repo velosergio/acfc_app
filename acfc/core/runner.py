@@ -28,11 +28,13 @@ class RunConfig:
     mode: str = "unico"
     phases: tuple = (1, 2, 3)
     sides: dict = field(default_factory=dict)        # fase 3: nombre -> lado del manifiesto
+    skip_people: bool = False                        # saltar la fase 2: la fase 3 lee de fase1_mapa
 
     @property
     def in_dir(self) -> Path:
         base = Path(self.input_dir)
-        return {0: base, 1: base, 2: base / "fase1_mapa", 3: base / "fase2_personas"}[self.phase]
+        previa3 = base / ("fase1_mapa" if self.skip_people else "fase2_personas")
+        return {0: base, 1: base, 2: base / "fase1_mapa", 3: previa3}[self.phase]
 
     @property
     def out_dir(self) -> Path:

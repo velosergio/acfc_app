@@ -49,8 +49,8 @@ class MainWindow(QMainWindow):
         self.workers_spin.setValue(2)
         self.force_check = QCheckBox("Rehacer las que ya existen en la carpeta de salida")
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["Por fases (1→2→3)", "Solo fase 1 (mapa)", "Solo fase 2 (personas)",
-                                  "Solo fase 3 (texto)", "Una sola pasada"])
+        self.mode_combo.addItems(["Por fases (1→2→3)", "Fases 1 y 3 (sin personas)", "Solo fase 1 (mapa)",
+                                  "Solo fase 2 (personas)", "Solo fase 3 (texto)", "Una sola pasada"])
         form = QFormLayout()
         form.addRow("Carpeta:", row)
         form.addRow("Modo:", self.mode_combo)
@@ -95,9 +95,10 @@ class MainWindow(QMainWindow):
 
     def build_config(self) -> RunConfig:
         idx = self.mode_combo.currentIndex()
-        phases = {0: (1, 2, 3), 1: (1,), 2: (2,), 3: (3,)}.get(idx, (1, 2, 3))
+        phases = {0: (1, 2, 3), 1: (1, 3), 2: (1,), 3: (2,), 4: (3,)}.get(idx, (1, 2, 3))
         return RunConfig(Path(self.path_edit.text().strip()), workers=self.workers_spin.value(),
-                         force=self.force_check.isChecked(), mode="unico" if idx == 4 else "fases", phases=phases)
+                         force=self.force_check.isChecked(), mode="unico" if idx == 5 else "fases", phases=phases,
+                         skip_people=idx == 1)
 
     def _start(self) -> None:
         folder = Path(self.path_edit.text().strip())
