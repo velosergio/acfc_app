@@ -20,6 +20,8 @@ class ImageResult:
     head: float = 0.0
     torso: float = 0.0
     area_ratio: float = 1.0
+    side: str = ""
+    cut: int = 0
 
 
 def _save_atomic(img: Image.Image, dest: Path) -> None:
