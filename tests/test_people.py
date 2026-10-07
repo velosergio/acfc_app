@@ -60,6 +60,14 @@ def test_gorra_blanca_con_fondo_oscuro_descarta_aunque_ocupe_poco():
     assert decide(img, [box]).discard is True
 
 
+def test_selfie_chaqueta_blanca_en_la_parte_baja_de_la_caja_descarta():
+    # caja que llega solo hasta los hombros: la prenda blanca queda en el 55-100 % inferior
+    img, box = _img(), (50, 100, 150, 350)
+    _paint(img, box, 0.25, 0.0, 0.75, 0.12)    # gorra
+    _paint(img, box, 0.1, 0.6, 0.9, 1.0)       # chaqueta en la parte baja
+    assert decide(img, [box]).discard is True
+
+
 def test_una_persona_blanca_entre_varias_descarta():
     img = _img()
     a, b = (10, 100, 80, 350), (110, 100, 190, 350)

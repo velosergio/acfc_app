@@ -10,9 +10,9 @@ from acfc.core.crop import Box
 
 @dataclass(frozen=True)
 class PersonThresholds:
-    head: float = 0.20
-    torso: float = 0.22
-    min_height_ratio: float = 0.08
+    head: float = 0.25
+    torso: float = 0.15
+    min_height_ratio: float = 0.12
 
 
 @dataclass(frozen=True)
@@ -58,7 +58,11 @@ def decide(rgb: np.ndarray, person_boxes: list[Box], th: PersonThresholds = Pers
             continue
         # el blanco del fondo (cielo nublado, pared) no cuenta como gorra ni como uniforme
         head = max(0.0, white_fraction(_zone(rgb, box, 0.25, 0.0, 0.75, 0.12)) - 0.8 * _background_white(rgb, box, 0.0, 0.12))
-        torso = max(0.0, white_fraction(_zone(rgb, box, 0.1, 0.2, 0.9, 0.55)) - 0.8 * _background_white(rgb, box, 0.2, 0.55))
+        # uniforme: zona media (torso) o zona baja (en selfis la caja llega solo hasta los hombros)
+        torso = max(
+            max(0.0, white_fraction(_zone(rgb, box, 0.1, fy0, 0.9, fy1)) - 0.8 * _background_white(rgb, box, fy0, fy1))
+            for fy0, fy1 in ((0.2, 0.55), (0.55, 1.0))
+        )
         is_white = head >= th.head and torso >= th.torso
         rank = (is_white, min(head / th.head, torso / th.torso))
         if rank > best_rank:
@@ -78,7 +82,7 @@ class PersonFilter:
 
     def boxes(self, rgb: np.ndarray) -> list[Box]:
         bgr = np.ascontiguousarray(rgb[..., ::-1])
-        res = self.model.predict(bgr, classes=[0], conf=0.35, imgsz=1280, device=self.device, verbose=False)[0]
+        res = self.model.predict(bgr, classes=[0], conf=0.25, imgsz=1280, device=self.device, verbose=False)[0]
         return [tuple(int(v) for v in b) for b in res.boxes.xyxy.cpu().numpy()]
 
     def check(self, rgb: np.ndarray) -> PeopleDecision:

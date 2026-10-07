@@ -42,6 +42,7 @@ def main() -> None:
             bw, bh = pb[2] - pb[0], pb[3] - pb[1]
             cv2.rectangle(vis, (int(pb[0] + .25 * bw), pb[1]), (int(pb[0] + .75 * bw), int(pb[1] + .12 * bh)), (255, 255, 0), 3)
             cv2.rectangle(vis, (int(pb[0] + .1 * bw), int(pb[1] + .2 * bh)), (int(pb[0] + .9 * bw), int(pb[1] + .55 * bh)), (255, 0, 255), 3)
+            cv2.rectangle(vis, (int(pb[0] + .1 * bw), int(pb[1] + .55 * bh)), (int(pb[0] + .9 * bw), int(pb[1] + 1.0 * bh) - 3), (0, 128, 255), 3)
         cv2.putText(vis, f"descartar={dec.discard} gorra={dec.head:.2f} torso={dec.torso:.2f}",
                     (20, h // 2), cv2.FONT_HERSHEY_SIMPLEX, w / 900, (255, 0, 255), 3)
         cv2.imwrite(str(a.out / p.name), vis)
