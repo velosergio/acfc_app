@@ -208,3 +208,25 @@ def test_brujula_abajo_izquierda():
 
 def test_sin_brujula():
     assert find_compass(_fondo(), P) == []
+
+
+def _tile_pin_chico(img, x0, y0, x1, y1, radio=4):
+    """Mosaico con un pin pequeño (radio de cabeza 4 px)."""
+    img[y0:y1, x0:x1] = (197, 232, 197)
+    cx, tip = (x0 + x1) // 2, (y0 + y1) // 2
+    cv2.circle(img, (cx, tip - 2 * radio), radio, (234, 67, 53), -1)
+    cv2.fillPoly(img, [np.array([[cx - radio + 1, tip - radio - 1], [cx + radio - 1, tip - radio - 1], [cx, tip]], np.int32)], (234, 67, 53))
+
+
+def test_minimapa_en_foto_apaisada_usa_el_lado_corto():
+    img = _fondo(800, 500)                            # apaisada: el lado corto es 500
+    _tile_pin_chico(img, 0, 350, 150, 500, radio=5)   # tile 150x150 abajo a la izquierda
+    (x0, y0, x1, y1), = find_minimap(img, P)
+    assert x0 == 0 and y1 == 500 and abs(x1 - 150) <= 6 and abs(y0 - 350) <= 6
+
+
+def test_minimapa_con_pin_pequeno_en_foto_vertical():
+    img = _fondo(900, 1600)
+    _tile_pin_chico(img, 0, 0, 250, 250, radio=5)
+    (x0, y0, x1, y1), = find_minimap(img, P)
+    assert (x0, y0) == (0, 0) and abs(x1 - 250) <= 8 and abs(y1 - 250) <= 8

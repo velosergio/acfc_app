@@ -28,7 +28,7 @@ class OverlayParams:
     text_pad_left: float = 0.03      # margen extra a la izquierda del bloque (por si el OCR perdió la línea más larga)
     margin: float = 0.012            # margen extra alrededor de cada caja
     # minimapa (pin rojo de Google en el centro del mosaico)
-    pin_area_min: float = 0.0004     # relativo a W²
+    pin_area_min: float = 0.00012    # relativo al lado corto²
     pin_area_max: float = 0.004
     tile_min_w: float = 0.12         # ancho del mosaico relativo a W
     tile_max_w: float = 0.45
@@ -57,7 +57,7 @@ def text_chain(results, width: int, height: int, y_offset: int, at_top: bool,
             continue
         px = [int(pt[0]) for pt in pts]
         py = [int(pt[1]) + y_offset for pt in pts]
-        if p.line_h_min * width <= max(py) - min(py) <= p.line_h_max * width:
+        if p.line_h_min * min(width, height) <= max(py) - min(py) <= p.line_h_max * min(width, height):
             frags.append((min(px), min(py), max(px), max(py), conf, text))
     # anclas: fragmentos pegados al margen derecho, con borde derecho coincidente
     anchors = [f for f in frags if _alnum(f[5]) >= 2 and f[2] >= p.right_align_min * width]
@@ -112,7 +112,7 @@ def text_boxes_from_ocr(results, width: int, height: int, y_offset: int, strip_h
 
 def _map_like_mask(rgb: np.ndarray) -> np.ndarray:
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-    return ((hsv[..., 1] <= 90) & (hsv[..., 2] >= 185)).astype(np.uint8)
+    return ((hsv[..., 1] <= 110) & (hsv[..., 2] >= 150)).astype(np.uint8)
 
 
 def _components(mask: np.ndarray):
@@ -136,7 +136,8 @@ def _refine_height(view: np.ndarray, tw: int, th: int, p: OverlayParams) -> int:
 
 def find_minimap(rgb: np.ndarray, p: OverlayParams) -> list[Box]:
     H, W = rgb.shape[:2]
-    region_w, region_h = int(p.tile_max_w * W / 2) + 2, min(H, int(0.35 * W))
+    s = min(H, W)
+    region_w, region_h = int(p.tile_max_w * s / 2) + 2, min(H, int(0.35 * s))
     boxes: list[Box] = []
     for right in (False, True):
         for bottom in (False, True):
@@ -144,14 +145,14 @@ def find_minimap(rgb: np.ndarray, p: OverlayParams) -> list[Box]:
             view = view[::-1] if bottom else view
             crop = np.ascontiguousarray(view[:region_h, :region_w])
             hsv = cv2.cvtColor(crop, cv2.COLOR_RGB2HSV)
-            red = (((hsv[..., 0] <= 8) | (hsv[..., 0] >= 172)) & (hsv[..., 1] >= 140) & (hsv[..., 2] >= 150)).astype(np.uint8)
+            red = (((hsv[..., 0] <= 8) | (hsv[..., 0] >= 172)) & (hsv[..., 1] >= 90) & (hsv[..., 2] >= 150)).astype(np.uint8)
             mapish = _map_like_mask(crop)
             for x, y, w, h, area, (cx, _cy) in _components(red):
-                if not (p.pin_area_min * W * W <= area <= p.pin_area_max * W * W) or not (1.0 <= h / max(w, 1) <= 2.6):
+                if not (p.pin_area_min * s * s <= area <= p.pin_area_max * s * s) or not (1.0 <= h / max(w, 1) <= 2.6):
                     continue
                 tip = y if bottom else y + h  # en la vista volteada la punta del pin queda arriba
                 tw, th = int(2 * cx), int(2 * tip)
-                if not (p.tile_min_w * W <= tw <= p.tile_max_w * W) or not (p.tile_aspect_min <= th / tw <= p.tile_aspect_max):
+                if not (p.tile_min_w * s <= tw <= p.tile_max_w * s) or not (p.tile_aspect_min <= th / tw <= p.tile_aspect_max):
                     continue
                 th = _refine_height(view, tw, th, p)
                 m = int(1.5 * h)
@@ -169,7 +170,8 @@ def find_minimap(rgb: np.ndarray, p: OverlayParams) -> list[Box]:
 
 def find_compass(rgb: np.ndarray, p: OverlayParams) -> list[Box]:
     H, W = rgb.shape[:2]
-    size = int(p.compass_size * W)
+    s = min(H, W)
+    size = int(p.compass_size * s)
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     cyan = ((hsv[..., 0] >= 84) & (hsv[..., 0] <= 98) & (hsv[..., 1] >= 140) & (hsv[..., 2] >= 120)).astype(np.uint8)
     boxes: list[Box] = []
@@ -179,7 +181,7 @@ def find_compass(rgb: np.ndarray, p: OverlayParams) -> list[Box]:
             y0, y1 = (H - size, H) if bottom else (0, size)
             sub = cyan[max(y0, 0):y1, x0:x1]
             for _x, _y, w, h, area, _c in _components(sub):
-                if area >= p.needle_area_min * W * W and w <= size * 0.5 and h <= size * 0.8:
+                if area >= p.needle_area_min * s * s and w <= size * 0.5 and h <= size * 0.8:
                     boxes.append((x0, max(y0, 0), x1, y1))
                     break
     return boxes
