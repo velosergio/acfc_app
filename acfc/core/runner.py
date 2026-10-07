@@ -188,3 +188,34 @@ class Runner:
                 if p.is_alive():
                     p.terminate()
         yield {"type": "finished", "fase": cfg.phase, "counts": dict(counts), "cancelled": self._cancel.is_set()}
+
+
+class PhasedRunner:
+    def __init__(self, cfg: RunConfig):
+        self.cfg = cfg
+        self._current: Runner | None = None
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+        if self._current:
+            self._current.cancel()
+
+    def events(self) -> Iterator[dict]:
+        per_phase: dict[int, dict] = {}
+        last: dict = {}
+        for ph in self.cfg.phases:
+            if self._cancelled:
+                break
+            self._current = Runner(replace(self.cfg, phase=ph))
+            for ev in self._current.events():
+                if ev["type"] == "finished":
+                    per_phase[ph] = last = ev["counts"]
+                    yield {"type": "phase_done", "fase": ph, "counts": ev["counts"], "cancelled": ev["cancelled"]}
+                else:
+                    yield {**ev, "fase": ph}
+        yield {"type": "finished", "counts": last, "phases": per_phase, "cancelled": self._cancelled}
+
+
+def make_runner(cfg: RunConfig):
+    return PhasedRunner(cfg) if cfg.mode == "fases" else Runner(cfg)
