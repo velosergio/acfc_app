@@ -46,7 +46,7 @@ def _alnum(text: str) -> int:
 
 
 def text_chain(results, width: int, height: int, y_offset: int, at_top: bool,
-               p: OverlayParams) -> tuple[Box, int] | None:
+               p: OverlayParams, min_lines: int | None = None) -> tuple[Box, int] | None:
     """Bloque de texto de la app GPS: líneas alineadas a la derecha, pegadas al borde superior o inferior.
 
     Devuelve (caja, nº de líneas fuertes) o None.
@@ -93,7 +93,7 @@ def text_chain(results, width: int, height: int, y_offset: int, at_top: bool,
                 left = min(left, f[0])
                 changed = True
     strong = sum(1 for c in chain if c[4] >= p.min_ocr_conf)
-    if strong < p.min_lines or sum(sum(ch.isdigit() for ch in m[5]) for m in members) < p.min_digits:
+    if strong < (p.min_lines if min_lines is None else min_lines) or sum(sum(ch.isdigit() for ch in m[5]) for m in members) < p.min_digits:
         return None
     x0 = max(0, left - int(p.text_pad_left * width))
     ext = int(p.chain_extend * med_h)
@@ -105,8 +105,8 @@ def text_chain(results, width: int, height: int, y_offset: int, at_top: bool,
 
 
 def text_boxes_from_ocr(results, width: int, height: int, y_offset: int, strip_h: int,
-                        at_top: bool, p: OverlayParams) -> list[Box]:
-    found = text_chain(results, width, height, y_offset, at_top, p)
+                        at_top: bool, p: OverlayParams, min_lines: int | None = None) -> list[Box]:
+    found = text_chain(results, width, height, y_offset, at_top, p, min_lines)
     return [found[0]] if found else []
 
 
@@ -199,12 +199,14 @@ class OverlayDetector:
         H, W = rgb.shape[:2]
         strip = int(self.p.strip_ratio * H)
         candidates = []
+        # con el lado ya conocido (tras el corte del mapa) suele quedar una sola línea legible: basta con una
+        min_lines = 1 if len(sides) == 1 else None
         for y0, at_top, lado in ((0, True, "arriba"), (H - strip, False, "abajo")):
             if lado not in sides:
                 continue
             results = self.reader.readtext(np.ascontiguousarray(rgb[y0:y0 + strip]), low_text=0.3,
                                            text_threshold=0.5, contrast_ths=0.3, adjust_contrast=0.7, batch_size=8)
-            found = text_chain(results, W, H, y0, at_top, self.p)
+            found = text_chain(results, W, H, y0, at_top, self.p, min_lines)
             if found:
                 candidates.append(found)
         if not candidates:

@@ -230,3 +230,25 @@ def test_minimapa_con_pin_pequeno_en_foto_vertical():
     _tile_pin_chico(img, 0, 0, 250, 250, radio=5)
     (x0, y0, x1, y1), = find_minimap(img, P)
     assert (x0, y0) == (0, 0) and abs(x1 - 250) <= 8 and abs(y1 - 250) <= 8
+
+
+def test_texto_una_sola_linea_fuerte_solo_con_min_lines_relajado():
+    # tras el corte del mapa suele quedar una sola línea legible pegada al borde inferior
+    results = [(_pts(700, 360, 995, 395), "28 may 2026 10.45 11a m", 0.51)]
+    assert text_boxes_from_ocr(results, 1000, 1000, 600, 400, False, P) == []
+    (x0, y0, x1, y1), = text_boxes_from_ocr(results, 1000, 1000, 600, 400, False, P, min_lines=1)
+    assert y1 == 1000 and y0 < 960 and x1 == 1000
+
+
+def test_detector_usa_modo_relajado_cuando_se_conoce_el_lado():
+    from acfc.core.overlay import OverlayDetector
+
+    class LectorFalso:
+        def readtext(self, img, **kw):
+            return [(_pts(700, 300, 995, 335), "28 may 2026 10.45 11a m", 0.51)]   # franja local: y 300-335
+
+    det = object.__new__(OverlayDetector)
+    det.p, det.reader = P, LectorFalso()
+    rgb = np.zeros((1000, 1000, 3), np.uint8)
+    assert det.text_boxes(rgb, ("abajo",)) != []                 # lado conocido: basta una línea
+    assert det.text_boxes(rgb, ("arriba", "abajo")) == []        # sin lado: regla estricta
