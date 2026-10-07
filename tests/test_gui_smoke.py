@@ -1,0 +1,24 @@
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtWidgets import QApplication
+
+from acfc.gui import MainWindow
+
+
+def test_handle_event_actualiza_barras_y_tabla():
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+    win.handle_event({"type": "start", "total": 3, "workers": 2, "batches": 1})
+    assert win.overall.maximum() == 3 and len(win.worker_bars) == 2
+    win.handle_event({"type": "batch_start", "worker": 0, "size": 3, "batch": 1})
+    assert win.worker_bars[0].maximum() == 3
+    win.handle_event({"type": "image_done", "worker": 0, "name": "a.jpg", "status": "saved",
+                      "reason": "", "head": 0.0, "torso": 0.0, "area_ratio": 0.8})
+    win.handle_event({"type": "image_done", "worker": 0, "name": "b.jpg", "status": "discarded",
+                      "reason": "uniforme y gorra blancos", "head": 0.5, "torso": 0.6, "area_ratio": 1.0})
+    assert win.overall.value() == 2 and win.worker_bars[0].value() == 2
+    assert win.table.rowCount() == 1 and win.table.item(0, 0).text() == "b.jpg"
+    win.handle_event({"type": "finished", "counts": {"saved": 1, "discarded": 1}, "cancelled": False})
+    assert win.start_btn.isEnabled() and not win.cancel_btn.isEnabled()
