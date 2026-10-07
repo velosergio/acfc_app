@@ -110,6 +110,15 @@ def text_boxes_from_ocr(results, width: int, height: int, y_offset: int, strip_h
     return [found[0]] if found else []
 
 
+def text_boxes_from_detection(boxes, width: int, height: int, y_offset: int, at_top: bool,
+                              p: OverlayParams, min_lines: int | None = None) -> list[Box]:
+    """Igual que text_boxes_from_ocr pero sin leer el texto: solo cuentan la geometría (líneas alineadas
+    a la derecha, pegadas al borde y apiladas). boxes = (x0, y0, x1, y1) locales a la franja."""
+    results = [([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], "0000", 1.0) for x0, y0, x1, y1 in boxes]
+    found = text_chain(results, width, height, y_offset, at_top, p, min_lines)
+    return [found[0]] if found else []
+
+
 def _map_like_mask(rgb: np.ndarray) -> np.ndarray:
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     return ((hsv[..., 1] <= 110) & (hsv[..., 2] >= 150)).astype(np.uint8)
@@ -196,6 +205,29 @@ class OverlayDetector:
         self.reader = easyocr.Reader(["es", "en"], gpu=gpu and torch.cuda.is_available(), verbose=False)
 
     def text_boxes(self, rgb: np.ndarray, sides: tuple[str, ...]) -> list[Box]:
+        """Bloque de texto GPS solo por detección (sin reconocer). Con el lado del corte conocido basta una línea."""
+        H, W = rgb.shape[:2]
+        strip = int(self.p.strip_ratio * H)
+        candidates = []
+        min_lines = 1 if len(sides) == 1 else None
+        for y0, at_top, lado in ((0, True, "arriba"), (H - strip, False, "abajo")):
+            if lado not in sides:
+                continue
+            horizontal, free = self.reader.detect(np.ascontiguousarray(rgb[y0:y0 + strip]),
+                                                  text_threshold=0.5, low_text=0.3)
+            boxes = [(x0, y_0, x1, y_1) for x0, x1, y_0, y_1 in horizontal[0]]
+            for pts in free[0]:
+                xs, ys = [q[0] for q in pts], [q[1] for q in pts]
+                boxes.append((min(xs), min(ys), max(xs), max(ys)))
+            found = text_chain([([(x0, y0_), (x1, y0_), (x1, y1_), (x0, y1_)], "0000", 1.0) for x0, y0_, x1, y1_ in boxes],
+                               W, H, y0, at_top, self.p, min_lines)
+            if found:
+                candidates.append(found)
+        if not candidates:
+            return []
+        return [pad_box(max(candidates, key=lambda c: c[1])[0], W, H, self.p.margin)]
+
+    def text_boxes_ocr(self, rgb: np.ndarray, sides: tuple[str, ...]) -> list[Box]:
         H, W = rgb.shape[:2]
         strip = int(self.p.strip_ratio * H)
         candidates = []
@@ -215,6 +247,6 @@ class OverlayDetector:
 
     def detect(self, rgb: np.ndarray) -> list[Box]:
         H, W = rgb.shape[:2]
-        boxes = self.text_boxes(rgb, ("arriba", "abajo"))
+        boxes = self.text_boxes_ocr(rgb, ("arriba", "abajo"))
         boxes += [pad_box(b, W, H, self.p.margin) for b in find_minimap(rgb, self.p) + find_compass(rgb, self.p)]
         return boxes

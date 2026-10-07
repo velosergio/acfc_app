@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from acfc.core.overlay import OverlayParams, find_compass, find_minimap, text_boxes_from_ocr
+from acfc.core.overlay import OverlayParams, find_compass, find_minimap, text_boxes_from_detection, text_boxes_from_ocr
 
 P = OverlayParams()
 
@@ -250,5 +250,39 @@ def test_detector_usa_modo_relajado_cuando_se_conoce_el_lado():
     det = object.__new__(OverlayDetector)
     det.p, det.reader = P, LectorFalso()
     rgb = np.zeros((1000, 1000, 3), np.uint8)
-    assert det.text_boxes(rgb, ("abajo",)) != []                 # lado conocido: basta una línea
-    assert det.text_boxes(rgb, ("arriba", "abajo")) == []        # sin lado: regla estricta
+    assert det.text_boxes_ocr(rgb, ("abajo",)) != []             # lado conocido: basta una línea
+    assert det.text_boxes_ocr(rgb, ("arriba", "abajo")) == []    # sin lado: regla estricta
+
+
+# ---------- texto solo por detección (sin leer) ----------
+
+def test_deteccion_una_caja_pegada_al_borde_y_a_la_derecha_se_recorta_con_lado_conocido():
+    cajas = [(700, 360, 995, 395)]                        # franja local (empieza en y=600): y 960-995 en la foto
+    assert text_boxes_from_detection(cajas, 1000, 1000, 600, False, P) == []                  # sin lado: hacen falta 2 líneas
+    (x0, y0, x1, y1), = text_boxes_from_detection(cajas, 1000, 1000, 600, False, P, min_lines=1)
+    assert y1 == 1000 and y0 < 960 and x1 == 1000
+
+
+def test_deteccion_caja_a_la_izquierda_o_lejos_del_borde_se_ignora():
+    izquierda = [(50, 360, 300, 395)]                     # estampado en la camiseta, no alineado a la derecha
+    assert text_boxes_from_detection(izquierda, 1000, 1000, 600, False, P, min_lines=1) == []
+    lejos = [(700, 100, 995, 135)]                        # y 700-735: a 265 px del borde (> 15 % de H)
+    assert text_boxes_from_detection(lejos, 1000, 1000, 600, False, P, min_lines=1) == []
+
+
+def test_detector_por_deteccion_no_lee_texto_y_usa_el_lado():
+    from acfc.core.overlay import OverlayDetector
+
+    class LectorFalso:
+        def detect(self, img, **kw):
+            return [[[700, 995, 360, 395]]], [[]]         # una sola línea; EasyOCR da (x_min, x_max, y_min, y_max)
+
+        def readtext(self, *a, **kw):
+            raise AssertionError("no debe leer texto")
+
+    det = object.__new__(OverlayDetector)
+    det.p, det.reader = P, LectorFalso()
+    rgb = np.zeros((1000, 1000, 3), np.uint8)
+    assert det.text_boxes(rgb, ("abajo",)) != []
+    assert det.text_boxes(rgb, ("arriba",)) == []         # la franja de arriba no tiene la caja pegada al borde (y local 360)
+    assert det.text_boxes(rgb, ("arriba", "abajo")) == []  # sin lado: una línea suelta no basta
