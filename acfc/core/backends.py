@@ -28,10 +28,14 @@ class FakeOverlay:
         return boxes
 
 
-def build_backend(name: str):
+def build_backend(name: str, phase: int = 0):
     if name == "fake":
         return FakePeople(), FakeOverlay()
-    from acfc.core.overlay import OverlayDetector
-    from acfc.core.people import PersonFilter
-
-    return PersonFilter(), OverlayDetector()
+    people = overlay = None
+    if phase in (0, 2):
+        from acfc.core.people import PersonFilter
+        people = PersonFilter()
+    if phase in (0, 3):
+        from acfc.core.overlay import OverlayDetector
+        overlay = OverlayDetector()
+    return people, overlay
