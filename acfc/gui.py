@@ -58,11 +58,14 @@ class MainWindow(QMainWindow):
         self.min_side_spin.setRange(0, 10000)
         self.min_side_spin.setValue(500)
         self.min_side_spin.setSuffix(" px")
+        self.min_side_spin.setSpecialValueText("0 (sin filtro)")
+        self.min_side_spin.setToolTip("Se descartan las imágenes con ancho o alto menor a este valor. "
+                                      "Se aplica en la fase 1 (antes de YOLO y OCR) y se verifica de nuevo en la fase 4.")
         form = QFormLayout()
         form.addRow("Carpeta:", row)
         form.addRow("Modo:", self.mode_combo)
         form.addRow("Workers:", self.workers_spin)
-        form.addRow("Lado mínimo (fase 4):", self.min_side_spin)
+        form.addRow("Tamaño mínimo (ancho y alto):", self.min_side_spin)
         form.addRow("", self.force_check)
 
         self.start_btn = QPushButton("Iniciar")

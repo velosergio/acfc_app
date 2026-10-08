@@ -28,7 +28,7 @@ class RunConfig:
     mode: str = "unico"
     phases: tuple = (1, 2, 3)
     sides: dict = field(default_factory=dict)        # fase 3: nombre -> lado del manifiesto
-    min_side: int = 500                              # fase 4: lado minimo en px
+    min_side: int = 0                                # lado minimo en px (fase 1 y fase 4); 0 = sin filtro
     skip_people: bool = False                        # saltar la fase 2: la fase 3 lee de fase1_mapa
 
     @property
@@ -54,7 +54,7 @@ def make_batches(items: list, size: int) -> list[list]:
 
 def _process(cfg: RunConfig, path: Path, people, overlay):
     if cfg.phase == 1:
-        return phase1_map(path, cfg.out_dir, min_keep=cfg.min_area_ratio, force=cfg.force)
+        return phase1_map(path, cfg.out_dir, min_keep=cfg.min_area_ratio, force=cfg.force, min_side=cfg.min_side)
     if cfg.phase == 2:
         return phase2_people(path, cfg.out_dir, people, cfg.force)
     if cfg.phase == 4:

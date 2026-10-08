@@ -19,12 +19,16 @@ def copy_atomic(src: Path, dest: Path) -> None:
 
 
 def phase1_map(path: Path, out_dir: Path, params: OverlayParams = OverlayParams(),
-               min_keep: float = 0.4, force: bool = False) -> ImageResult:
+               min_keep: float = 0.4, force: bool = False, min_side: int = 0) -> ImageResult:
+    """Fase 1: recorta el minimapa. Con min_side > 0 tambien descarta (sin guardar) lo que quede con un lado
+    menor: asi YOLO y el OCR de las fases siguientes no gastan tiempo en imagenes que se van a eliminar."""
     dest = out_dir / path.name
     try:
         if dest.exists() and not force:
             return ImageResult(path.name, "skipped", "ya existe")
         with Image.open(path) as raw:
+            if min_side and min(raw.size) < min_side:      # solo el encabezado: no se decodifica la imagen
+                return ImageResult(path.name, "discarded", f"menor de {min_side}px ({raw.size[0]}x{raw.size[1]})")
             img = ImageOps.exif_transpose(raw).convert("RGB")
         w, h = img.size
         maps = find_minimap(np.asarray(img), params)
@@ -40,6 +44,10 @@ def phase1_map(path: Path, out_dir: Path, params: OverlayParams = OverlayParams(
             side, cut = "abajo", max(0, y0 - margin)
             rect = (0, 0, w, cut)
         keep = (rect[3] - rect[1]) / h
+        if min_side and min(rect[2] - rect[0], rect[3] - rect[1]) < min_side:
+            return ImageResult(path.name, "discarded",
+                               f"menor de {min_side}px tras el recorte ({rect[2] - rect[0]}x{rect[3] - rect[1]})",
+                               side=side, cut=cut)
         _save_atomic(img.crop(rect), dest)
         status = "review" if keep < min_keep else "cropped"
         reason = f"corte deja {keep:.0%}" if status == "review" else ""

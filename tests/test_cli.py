@@ -27,7 +27,7 @@ def test_cli_por_fases_es_el_modo_por_defecto(tmp_path, make_image):
 
 def test_cli_una_sola_fase(tmp_path, make_image):
     make_image(tmp_path / "a.jpg", size=(100, 100))
-    assert main([str(tmp_path), "--fase", "1", "--backend", "fake"]) == 0
+    assert main([str(tmp_path), "--fase", "1", "--backend", "fake", "--min-lado", "1"]) == 0
     assert (tmp_path / "fase1_mapa" / "a.jpg").exists() and not (tmp_path / "outputs").exists()
 
 

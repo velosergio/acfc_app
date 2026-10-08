@@ -176,3 +176,19 @@ def test_fase3_omite_force_y_error(tmp_path, make_image):
     assert phase3_text(src, out, overlay, force=True).status == "saved"
     bad = tmp_path / "bad.jpg"; bad.write_bytes(b"basura")
     assert phase3_text(bad, out, overlay).status == "error"
+
+
+def test_fase1_original_pequena_se_descarta_sin_guardar(tmp_path, make_image):
+    src = make_image(tmp_path / "p.jpg", size=(400, 800))
+    out = tmp_path / "f1"; out.mkdir()
+    r = phase1_map(src, out, min_side=500)
+    assert r.status == "discarded" and "400" in r.reason and not (out / "p.jpg").exists()
+    assert phase1_map(src, out, min_side=0).status == "copied"            # 0 = sin filtro de tamano
+
+
+def test_fase1_recorte_que_deja_menos_del_minimo_se_descarta(tmp_path):
+    src = _foto_con_mapa(tmp_path / "a.jpg", w=600, h=620)               # original ok; sin mapa queda ~490 de alto
+    out = tmp_path / "f1"; out.mkdir()
+    r = phase1_map(src, out, min_side=500)
+    assert r.status == "discarded" and not (out / "a.jpg").exists() and r.side == "abajo"
+    assert phase1_map(src, out, min_side=400).status == "cropped"          # con un minimo menor si pasa

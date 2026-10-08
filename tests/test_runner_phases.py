@@ -96,3 +96,16 @@ def test_force_en_fase_reinicia_logs_y_manifiesto(tmp_path, make_image):
 def test_free_memory_no_falla_sin_torch_ni_gpu():
     from acfc.core.runner import free_memory
     free_memory()
+
+
+def test_fase1_descartadas_por_tamano_no_pasan_al_manifiesto_ni_a_las_fases_siguientes(tmp_path, make_image):
+    make_image(tmp_path / "chica.jpg", size=(300, 900))
+    make_image(tmp_path / "grande.jpg", size=(900, 900))
+    events = _run(RunConfig(tmp_path, phase=1, workers=1, backend="fake", min_side=500))
+    assert events[-1]["counts"] == {"discarded": 1, "copied": 1}
+    out = tmp_path / "fase1_mapa"
+    assert list(read_manifest(out)) == ["grande.jpg"] and not (out / "chica.jpg").exists()
+    desc = list(csv.DictReader((out / "log_fase1_descartadas.csv").open(encoding="utf-8")))
+    assert [r["archivo"] for r in desc] == ["chica.jpg"]
+    events = _run(RunConfig(tmp_path, phase=2, workers=1, backend="fake"))
+    assert events[0]["total"] == 1                                         # la fase 2 solo ve la que sobrevivio
