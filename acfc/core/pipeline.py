@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageOps
 
+from acfc.core.atomic import save_atomic
 from acfc.core.crop import largest_free_rect
-
-_FORMATS = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG"}
 
 
 @dataclass
@@ -22,14 +20,6 @@ class ImageResult:
     area_ratio: float = 1.0
     side: str = ""
     cut: int = 0
-
-
-def _save_atomic(img: Image.Image, dest: Path) -> None:
-    tmp = dest.with_name(f".{dest.name}.tmp")
-    fmt = _FORMATS.get(dest.suffix.lower(), "PNG")
-    kwargs = {"quality": 95} if fmt == "JPEG" else {}
-    img.save(tmp, format=fmt, **kwargs)
-    os.replace(tmp, dest)
 
 
 def process_image(path: Path, out_dir: Path, people, overlay,
@@ -49,10 +39,10 @@ def process_image(path: Path, out_dir: Path, people, overlay,
         boxes = overlay.detect(rgb)
         rect = largest_free_rect(w, h, boxes) if boxes else (0, 0, w, h)
         if rect is None:
-            _save_atomic(img, dest)
+            save_atomic(img, dest)
             return ImageResult(path.name, "review", "sin rectangulo libre; se guardo el original", area_ratio=1.0)
         ratio = (rect[2] - rect[0]) * (rect[3] - rect[1]) / (w * h)
-        _save_atomic(img.crop(rect), dest)
+        save_atomic(img.crop(rect), dest)
         if ratio < min_area_ratio:
             return ImageResult(path.name, "review", f"recorte pequeno ({ratio:.0%})", area_ratio=ratio)
         return ImageResult(path.name, "saved", area_ratio=ratio)
